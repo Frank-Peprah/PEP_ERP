@@ -9,8 +9,8 @@ pg.types.setTypeParser(20, (v) => v); // bigint as string
 export type Db = pg.Pool;
 export type Tx = pg.PoolClient;
 
-export function createPool(connectionString: string): Db {
-  return new pg.Pool({ connectionString, max: 10 });
+export function createPool(connectionString: string, opts: { max?: number } = {}): Db {
+  return new pg.Pool({ connectionString, max: opts.max ?? 10, idleTimeoutMillis: 10_000 });
 }
 
 /** Run fn in a SERIALIZABLE-safe transaction (READ COMMITTED + explicit row locks). */

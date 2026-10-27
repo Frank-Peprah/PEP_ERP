@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 — 2026-10-27 — Staging deployment
+- Migration 002: RLS on all tables, security_invoker ledger view, revoke hosted REST roles, pinned function search_path.
+- Supabase Edge Function bundle of the API (`scripts/build-edge.mjs`); Netlify config for the web app.
+- Staging access-code gate on demo login; portable SQL demo seed (`database/seeds/demo_seed.sql`).
+
 ## 0.1.0 — 2026-10-27 — Release 1 vertical slice
 - Accounting core schema with database-enforced invariants (balance, immutability, period lock, workflow, audit chain).
 - Journal workflow with segregation of duties, linked reversals, gapless numbering, idempotent creation, optimistic locking.

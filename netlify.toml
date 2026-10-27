@@ -1,0 +1,27 @@
+# Staging web app. Netlify serves the built React app and forwards /api/* to the
+# PEP API running as a Supabase Edge Function (project pep-erp-staging, London).
+[build]
+  command = "npm run build:web"
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://ppyancjjjsaogyjpkxcr.supabase.co/functions/v1/pep-api/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Robots-Tag = "noindex, nofollow"

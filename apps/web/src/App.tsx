@@ -37,9 +37,20 @@ const NAV: { group: string; items: { id: string; label: string; icon: string; pe
 function Login({ onDone }: { onDone: () => void }) {
   const [users, setUsers] = useState<any[]>([]);
   const [err, setErr] = useState('');
-  useEffect(() => { api('/dev/users').then(setUsers).catch((e) => setErr(e.message)); }, []);
+  const [needCode, setNeedCode] = useState(false);
+  const [code, setCode] = useState(() => { try { return sessionStorage.getItem('pep.access') ?? ''; } catch { return ''; } });
+  const loadUsers = (c: string) => {
+    fetch('/api/dev/users', { headers: c ? { 'x-access-code': c } : {} }).then(async (r) => {
+      const j = await r.json();
+      if (r.status === 401 && j?.error?.code === 'ACCESS_CODE_REQUIRED') { setNeedCode(true); setUsers([]); if (c) setErr('That access code is not correct.'); return; }
+      if (!r.ok) { setErr(j?.error?.message ?? 'Could not load users'); return; }
+      setErr(''); setUsers(j);
+      try { if (c) sessionStorage.setItem('pep.access', c); } catch { /* storage unavailable */ }
+    }).catch((e) => setErr(e.message));
+  };
+  useEffect(() => { loadUsers(code); }, []);
   const login = async (email: string) => {
-    try { const r = await api('/auth/dev-login', { method: 'POST', body: { email } }); setToken(r.token); onDone(); }
+    try { const r = await api('/auth/dev-login', { method: 'POST', body: { email, accessCode: code || undefined } }); setToken(r.token); onDone(); }
     catch (e: any) { setErr(e.message); }
   };
   return (
@@ -51,9 +62,16 @@ function Login({ onDone }: { onDone: () => void }) {
       </div>
       <div className="panel">
         <div className="box">
-          <h3 style={{ margin: 0, fontSize: 18 }}>Sign in — development</h3>
-          <p className="sub">Choose a seeded user. Each role sees different permissions, so you can test segregation of duties end to end.</p>
-          {err && <div className="alert block">{err}</div>}
+          <h3 style={{ margin: 0, fontSize: 18 }}>Sign in — {needCode ? 'staging' : 'development'}</h3>
+          <p className="sub">Choose a demo user. Each role sees different permissions, so you can test segregation of duties end to end.</p>
+          {needCode && (
+            <form className="row" style={{ marginTop: 12 }} onSubmit={(e) => { e.preventDefault(); loadUsers(code.trim()); }}>
+              <label className="field" style={{ flex: 1 }}>Staging access code
+                <input id="access-code" className="input" type="password" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} /></label>
+              <button className="btn primary" type="submit" disabled={!code.trim()}>Unlock</button>
+            </form>
+          )}
+          {err && <div className="alert block" style={{ marginTop: 12 }}>{err}</div>}
           <div className="user-pick">
             {users.map((u) => (
               <button key={u.email} onClick={() => login(u.email)}>
@@ -62,7 +80,7 @@ function Login({ onDone }: { onDone: () => void }) {
               </button>
             ))}
           </div>
-          <p className="sub" style={{ fontSize: 11.5, marginTop: 16 }}>Production requires an identity provider with MFA — this passwordless login is disabled when NODE_ENV=production.</p>
+          <p className="sub" style={{ fontSize: 11.5, marginTop: 16 }}>Demo data only. Real accounts with MFA replace this sign-in before any live books are loaded.</p>
         </div>
       </div>
     </div>

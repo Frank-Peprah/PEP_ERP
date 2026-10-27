@@ -20,5 +20,11 @@
 | 6 | Audit-chain anchoring (periodic hash published off-database) | Engineering lead | Before production |
 | 7 | External penetration test | CEO sign-off | Before production |
 
+## Staging posture
+- Holds DEMO data only. Login is gated by `STAGING_ACCESS_CODE` (constant-time compare) and issues the same signed tokens.
+- Supabase `anon`/`authenticated` roles have no privileges on PEP tables; RLS is enabled with no policies.
+- `X-Robots-Tag: noindex` and frame-deny headers on the Netlify site.
+- Blocker 1 (real identity + MFA) must close before any real Trulander data is loaded into staging.
+
 ## Known limitation
 A database superuser can disable triggers. Triggers protect against application bugs and ordinary SQL; protection against privileged insiders comes from blockers 2 and 6.

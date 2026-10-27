@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import { DomainError } from '@pep/accounting-domain';
@@ -8,7 +9,7 @@ import * as S from './services/setup.js';
 import * as R from './services/reports.js';
 
 const STATUS: Record<string, number> = {
-  UNAUTHENTICATED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
+  UNAUTHENTICATED: 401, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
   CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409,
   ACCOUNT_HAS_ACTIVITY: 409, REFERENCED: 409, POSTED_JOURNAL_IMMUTABLE: 409, JOURNAL_LINES_IMMUTABLE: 409,
   PERIOD_LOCKED: 423,
@@ -49,17 +50,27 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
     return { ok: true, service: 'pep-erp-api', version: '0.1.0' };
   });
 
-  // DEVELOPMENT ONLY: passwordless login for seeded users. Disabled in production.
+  // Staging gate: when STAGING_ACCESS_CODE is set, demo login and the user list require it.
+  const checkAccessCode = (given: unknown) => {
+    const code = process.env.STAGING_ACCESS_CODE;
+    if (!code) return;
+    const a = Buffer.from(String(given ?? '')), b = Buffer.from(code);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new DomainError('ACCESS_CODE_REQUIRED', 'Enter the staging access code');
+  };
+
+  // DEVELOPMENT/STAGING ONLY: passwordless login for seeded demo users. Disabled in production.
   app.post('/api/auth/dev-login', async (req) => {
     if (!opts.allowDevLogin || process.env.NODE_ENV === 'production') throw new DomainError('NOT_FOUND', 'Not found');
+    checkAccessCode((req.body as any)?.accessCode);
     const { email } = (req.body ?? {}) as { email?: string };
     const r = await db.query('SELECT id FROM users WHERE email = $1 AND is_active', [String(email ?? '').toLowerCase()]);
     if (!r.rowCount) throw new DomainError('UNAUTHENTICATED', 'Unknown user');
     return { token: issueToken(r.rows[0].id) };
   });
 
-  app.get('/api/dev/users', async () => {
+  app.get('/api/dev/users', async (req) => {
     if (!opts.allowDevLogin || process.env.NODE_ENV === 'production') throw new DomainError('NOT_FOUND', 'Not found');
+    checkAccessCode(req.headers['x-access-code']);
     return (await db.query(
       `SELECT u.email, u.full_name, string_agg(DISTINCT uer.role_code, ', ') AS roles FROM users u
          LEFT JOIN user_entity_roles uer ON uer.user_id = u.id GROUP BY u.id ORDER BY u.full_name`)).rows;
