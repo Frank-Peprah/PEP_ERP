@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "strict": true, "esModuleInterop": true, "skipLibCheck": true, "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": false, "types": ["node"],
+    "baseUrl": ".", "paths": { "@pep/accounting-domain": ["packages/accounting-domain/src/index.ts"] }
+  },
+  "include": ["packages/*/src", "apps/api/src", "database", "tests"]
+}

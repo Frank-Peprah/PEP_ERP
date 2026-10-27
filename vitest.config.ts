@@ -1,0 +1,6 @@
+import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
+export default defineConfig({
+  resolve: { alias: { '@pep/accounting-domain': fileURLToPath(new URL('./packages/accounting-domain/src/index.ts', import.meta.url)) } },
+  test: { include: ['tests/**/*.test.ts'], fileParallelism: false, testTimeout: 20000, hookTimeout: 30000 },
+});
