@@ -2,6 +2,9 @@ export class ApiError extends Error {
   constructor(public code: string, message: string, public status: number) { super(message); }
 }
 
+/** API origin. Empty = same origin (/api proxied, e.g. Netlify or local). Set VITE_API_BASE for hosts that cannot proxy (e.g. SiteGround). */
+export const API_BASE: string = ((import.meta as any).env?.VITE_API_BASE ?? '').replace(/\/$/, '');
+
 let token: string | null = sessionStorage.getItem('pep.token');
 export const setToken = (t: string | null) => {
   token = t;
@@ -10,7 +13,7 @@ export const setToken = (t: string | null) => {
 export const hasToken = () => !!token;
 
 export async function api<T = any>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}/api${path}`, {
     method: init.method ?? 'GET',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 — 2026-10-27 — SiteGround hosting option
+- Web app API origin configurable via `VITE_API_BASE`; Apache `.htaccess` for SPA routing and security headers.
+- CORS now allows PUT/PATCH/DELETE and the app's custom headers (regression test added; 43 tests).
+
 ## 0.1.1 — 2026-10-27 — Staging deployment
 - Migration 002: RLS on all tables, security_invoker ledger view, revoke hosted REST roles, pinned function search_path.
 - Supabase Edge Function bundle of the API (`scripts/build-edge.mjs`); Netlify config for the web app.

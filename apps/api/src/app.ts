@@ -21,7 +21,12 @@ declare module 'fastify' {
 
 export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024 });
-  app.register(cors, { origin: process.env.CORS_ORIGIN?.split(',') ?? true });
+  app.register(cors, {
+    origin: process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ?? true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['authorization', 'content-type', 'idempotency-key', 'x-access-code'],
+    maxAge: 600,
+  });
 
   app.setErrorHandler((err, _req, reply) => {
     const e = translatePgError(err);

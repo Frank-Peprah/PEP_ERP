@@ -45,6 +45,19 @@ describe('#17 entity isolation', () => {
   });
 });
 
+describe('Cross-origin access (web app on a separate host, e.g. SiteGround)', () => {
+  it('preflight allows every method and header the web app uses', async () => {
+    for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+      const r = await c.app.inject({ method: 'OPTIONS', url: `/api/entities/${c.T}/journals`, headers: {
+        origin: 'https://erp.example.com', 'access-control-request-method': method,
+        'access-control-request-headers': 'authorization,content-type,idempotency-key,x-access-code' } });
+      expect(r.statusCode, method).toBe(204);
+      expect(String(r.headers['access-control-allow-methods'])).toContain(method);
+      expect(String(r.headers['access-control-allow-headers'])).toContain('x-access-code');
+    }
+  });
+});
+
 describe('Database-level controls (application bypassed)', () => {
   const expectDbError = async (sql: string, params: unknown[], code: string) => {
     await expect(c.db.query(sql, params)).rejects.toThrow(code);

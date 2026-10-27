@@ -1065,7 +1065,12 @@ var STATUS = {
 };
 function buildApp(db, opts = {}) {
   const app2 = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024 });
-  app2.register(cors, { origin: process.env.CORS_ORIGIN?.split(",") ?? true });
+  app2.register(cors, {
+    origin: process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()) ?? true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-access-code"],
+    maxAge: 600
+  });
   app2.setErrorHandler((err, _req, reply) => {
     const e = translatePgError(err);
     if (e instanceof DomainError) {
