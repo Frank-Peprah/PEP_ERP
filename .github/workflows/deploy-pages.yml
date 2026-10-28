@@ -1,6 +1,10 @@
-# Builds the React web app and publishes it to GitHub Pages.
-# Requires: Settings → Pages → Build and deployment → Source = "GitHub Actions".
-# The API stays on Supabase; the app calls it directly (VITE_API_BASE).
+# Builds the React web app and publishes it to GitHub Pages at https://<owner>.github.io/<repo>/
+#
+# Works with either Pages source setting:
+#  - "Deploy from a branch" (main, /root): the built app is committed to app/ with a root
+#    index.html redirect, so GitHub's branch build publishes the app (not the README).
+#  - "GitHub Actions": the deploy job publishes the same layout from _site/.
+# The API stays on Supabase; the app calls it directly (VITE_API_BASE in scripts/build-pages.sh).
 name: Deploy web app to GitHub Pages
 
 on:
@@ -11,11 +15,12 @@ on:
       - 'packages/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'scripts/build-pages.sh'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -26,9 +31,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      VITE_BASE: /${{ github.event.repository.name }}/
-      VITE_API_BASE: https://ppyancjjjsaogyjpkxcr.supabase.co/functions/v1/pep-api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,19 +38,24 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Type-check and build web app
-        run: npm run build:web
-      - name: Prepare Pages artefact
+      - name: Build app for Pages
+        run: ./scripts/build-pages.sh
+      - name: Commit rebuilt app/ to main (branch-mode Pages)
         run: |
-          cp apps/web/dist/index.html apps/web/dist/404.html   # deep links fall back to the app
-          touch apps/web/dist/.nojekyll                          # serve files as-is, no Jekyll
-          rm -f apps/web/dist/.htaccess                          # Apache-only, unused on Pages
-          test -f apps/web/dist/index.html
-          grep -q "${VITE_BASE}assets/" apps/web/dist/index.html || { echo "Asset paths do not use base ${VITE_BASE}"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app
+          if git diff --cached --quiet; then
+            echo "app/ unchanged"
+          else
+            git commit -m "chore(pages): rebuild app/ from ${GITHUB_SHA::7}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/web/dist
+          path: _site
 
   deploy:
     needs: build

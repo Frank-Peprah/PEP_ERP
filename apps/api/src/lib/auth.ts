@@ -6,11 +6,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Db } from './db.js';
 import { DomainError } from '@pep/accounting-domain';
+import { getConfig } from './config.js';
 
 const TTL_SECONDS = 8 * 3600;
 
 function secret(): string {
-  const s = process.env.AUTH_SECRET;
+  const s = getConfig('AUTH_SECRET');
   if (!s || s.length < 32) {
     throw new DomainError('AUTH_NOT_CONFIGURED',
       'Sign-in is not configured on the server. An administrator must set the AUTH_SECRET secret (at least 32 characters).');

@@ -2,7 +2,9 @@
  * Spec §12 #17 (entity isolation) and defence-in-depth: the database itself refuses
  * to corrupt posted records even when the application layer is bypassed.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { buildApp } from '../../apps/api/src/app.js';
+import { resetConfigCache } from '../../apps/api/src/lib/config.js';
 import { setup, postJournal, type Ctx } from '../helpers.js';
 
 let c: Ctx; let posted: any; let bankT: string; let capT: string;
@@ -55,6 +57,55 @@ describe('Server configuration errors are explicit', () => {
       expect(r.json().error.code).toBe('AUTH_NOT_CONFIGURED');
       expect(r.json().error.message).toContain('AUTH_SECRET');
     } finally { process.env.AUTH_SECRET = saved; }
+  });
+});
+
+describe('Secrets from the locked app_config table (hosts without env vars)', () => {
+  const saved = { a: process.env.AUTH_SECRET, s: process.env.STAGING_ACCESS_CODE, c: process.env.CORS_ORIGIN };
+  afterEach(async () => {
+    await c.db.query('DELETE FROM app_config');
+    process.env.AUTH_SECRET = saved.a;
+    if (saved.s === undefined) delete process.env.STAGING_ACCESS_CODE; else process.env.STAGING_ACCESS_CODE = saved.s;
+    if (saved.c === undefined) delete process.env.CORS_ORIGIN; else process.env.CORS_ORIGIN = saved.c;
+    resetConfigCache();
+  });
+
+  it('uses AUTH_SECRET and STAGING_ACCESS_CODE from app_config when env vars are absent', async () => {
+    delete process.env.AUTH_SECRET; delete process.env.STAGING_ACCESS_CODE;
+    await c.db.query(`INSERT INTO app_config (key, value) VALUES ('AUTH_SECRET', encode(gen_random_bytes(48), 'base64')),
+                                                         ('STAGING_ACCESS_CODE', 'TEST-CODE-1234')`);
+    const app2 = buildApp(c.db, { allowDevLogin: true });
+    await app2.ready();
+    expect((await app2.inject({ method: 'GET', url: '/api/dev/users' })).json().error.code).toBe('ACCESS_CODE_REQUIRED');
+    const bad = await app2.inject({ method: 'POST', url: '/api/auth/dev-login', payload: { email: 'ama@pep.local', accessCode: 'nope' } });
+    expect(bad.statusCode).toBe(401);
+    const ok = await app2.inject({ method: 'POST', url: '/api/auth/dev-login', payload: { email: 'ama@pep.local', accessCode: 'TEST-CODE-1234' } });
+    expect(ok.statusCode).toBe(200);
+    const me = await app2.inject({ method: 'GET', url: '/api/me', headers: { authorization: `Bearer ${ok.json().token}` } });
+    expect(me.json().user.email).toBe('ama@pep.local');
+    await app2.close();
+  });
+
+  it('environment variables take precedence over app_config', async () => {
+    await c.db.query(`INSERT INTO app_config (key, value) VALUES ('STAGING_ACCESS_CODE', 'FROM-DB')`);
+    process.env.STAGING_ACCESS_CODE = 'FROM-ENV';
+    const app2 = buildApp(c.db, { allowDevLogin: true });
+    await app2.ready();
+    const r = await app2.inject({ method: 'GET', url: '/api/dev/users', headers: { 'x-access-code': 'FROM-ENV' } });
+    expect(r.statusCode).toBe(200);
+    await app2.close();
+  });
+
+  it('CORS allow-list from app_config admits listed origins only', async () => {
+    delete process.env.CORS_ORIGIN;
+    await c.db.query(`INSERT INTO app_config (key, value) VALUES ('CORS_ORIGIN', 'https://frank-peprah.github.io, https://erp.example.com')`);
+    const app2 = buildApp(c.db, { allowDevLogin: true });
+    await app2.ready();
+    const pre = (origin: string) => app2.inject({ method: 'OPTIONS', url: '/api/health',
+      headers: { origin, 'access-control-request-method': 'GET' } });
+    expect((await pre('https://frank-peprah.github.io')).headers['access-control-allow-origin']).toBe('https://frank-peprah.github.io');
+    expect((await pre('https://evil.example.net')).headers['access-control-allow-origin']).toBeUndefined();
+    await app2.close();
   });
 });
 

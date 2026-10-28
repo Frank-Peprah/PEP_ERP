@@ -3,6 +3,7 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import { DomainError } from '@pep/accounting-domain';
 import { translatePgError, type Db } from './lib/db.js';
+import { getConfig, loadConfigFromDb } from './lib/config.js';
 import { issueToken, loadActor, loadScope, verifyToken, type Actor, type EntityScope } from './lib/auth.js';
 import * as J from './services/journals.js';
 import * as S from './services/setup.js';
@@ -21,8 +22,23 @@ declare module 'fastify' {
 
 export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024 });
+  // Accept an empty body sent with content-type: application/json (treated as no body).
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const text = String(body ?? '');
+    if (text.trim() === '') return done(null, undefined);
+    try { done(null, JSON.parse(text)); }
+    catch { const e = new Error('Request body is not valid JSON') as Error & { statusCode: number }; e.statusCode = 400; done(e, undefined); }
+  });
+  // Secrets missing from the environment are read from the locked app_config table at startup.
+  app.addHook('onReady', async () => { await loadConfigFromDb(db); });
   app.register(cors, {
-    origin: process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ?? true,
+    // Allow-list from CORS_ORIGIN (env or app_config), evaluated per request; unset = allow all.
+    origin: (origin, cb) => {
+      const list = getConfig('CORS_ORIGIN');
+      if (!list || !origin) return cb(null, true);
+      cb(null, list.split(',').map((o) => o.trim().replace(/\/$/, '')).includes(origin));
+    },
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['authorization', 'content-type', 'idempotency-key', 'x-access-code'],
     maxAge: 600,
@@ -57,7 +73,7 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
 
   // Staging gate: when STAGING_ACCESS_CODE is set, demo login and the user list require it.
   const checkAccessCode = (given: unknown) => {
-    const code = process.env.STAGING_ACCESS_CODE;
+    const code = getConfig('STAGING_ACCESS_CODE');
     if (!code) return;
     const a = Buffer.from(String(given ?? '')), b = Buffer.from(code);
     if (a.length !== b.length || !timingSafeEqual(a, b)) throw new DomainError('ACCESS_CODE_REQUIRED', 'Enter the staging access code');

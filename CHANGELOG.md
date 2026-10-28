@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4 — 2026-10-28 — Pages live; workflow buttons fixed
+- Pages: the built app is committed to `app/` with root `index.html`/`404.html` redirects and `.nojekyll`, so the
+  branch-based Pages build publishes the app. That ends the race in which Jekyll overwrote the Actions deploy with README.md.
+  Relative asset paths (`VITE_BASE=./`); `scripts/build-pages.sh`; workflow rebuilds and commits `app/` and deploys `_site/`.
+- **Bug fix:** Submit / Approve / Post / Return / Lock failed with HTTP 400 from the web app, which sent
+  `content-type: application/json` with no body. Web now omits the header without a body; API also accepts empty JSON bodies.
+- **Bug fix:** after *Switch user*, signing in as another user of the same entity hung on "Loading…". Entity now reloads
+  per user; load failures show an error with a way back to sign-in.
+- Migration 003 `app_config`: API reads `AUTH_SECRET` / `STAGING_ACCESS_CODE` / `CORS_ORIGIN` from env, else this locked table.
+  CORS allow-list is evaluated per request. Staging secrets generated in-database.
+- Tests: 48 (adds empty-body workflow, DB-sourced secrets, env precedence, CORS allow-list). Browser end-to-end test of
+  the exact Pages artefact: access gate → sign-in → dashboard → TB → submit → approve → post.
+
 ## 0.1.3 — 2026-10-28 — GitHub Pages deployment fix
 - Root cause: Pages was publishing the repo via Jekyll ("Deploy from a branch"), which renders README.md; the React app was never built.
 - Added `.github/workflows/deploy-pages.yml` (npm ci → Vite build with `VITE_BASE=/PEP_ERP/` → Pages artefact with `.nojekyll` and `404.html`).

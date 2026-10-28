@@ -96,6 +96,7 @@ export default function App() {
   const [params, setParams] = useState<Record<string, string>>({});
   const [toastMsg, setToastMsg] = useState<{ m: string; err?: boolean } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authed) return;
@@ -106,15 +107,19 @@ export default function App() {
     }).catch(() => { setToken(null); setAuthed(false); });
   }, [authed]);
 
+  // Reload the entity whenever the entity OR the signed-in user changes (permissions are per user).
   useEffect(() => {
-    if (!entityId) return;
-    sessionStorage.setItem('pep.entity', entityId);
+    if (!entityId || !me) return;
+    setLoadError(null);
+    try { sessionStorage.setItem('pep.entity', entityId); } catch { /* storage unavailable */ }
     api(`/entities/${entityId}`).then((e) => {
       setEntity(e);
       const perms = new Set<string>(e.permissions);
       if (!perms.has('reports.read') && page === 'dashboard') setPage(perms.has('journal.read') ? 'journals' : 'periods');
-    });
-  }, [entityId]);
+    }).catch((err) => setLoadError(err.message));
+  }, [entityId, me?.user.id]);
+
+  const signOut = () => { setToken(null); setAuthed(false); setMe(null); setEntity(null); setPage('dashboard'); setParams({}); setLoadError(null); };
 
   const toast = useCallback((m: string, err?: boolean) => { setToastMsg({ m, err }); setTimeout(() => setToastMsg(null), err ? 6000 : 3200); }, []);
   const go = useCallback((p: string, pr: Record<string, string> = {}) => { setPage(p); setParams(pr); window.scrollTo(0, 0); }, []);
@@ -124,7 +129,9 @@ export default function App() {
   } : null, [me, entity, params, refreshKey]);
 
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
-  if (!ctx) return <div className="empty">Loading…</div>;
+  if (!ctx) return loadError
+    ? <div className="empty"><div className="alert block" style={{ display: 'inline-flex' }}>{loadError}</div><p><button className="btn" onClick={signOut}>Back to sign-in</button></p></div>
+    : <div className="empty">Loading…</div>;
 
   const initials = ctx.user.fullName.split(' ').map((s) => s[0]).slice(0, 2).join('');
   const Page = { dashboard: Dashboard, journals: Journals, ledger: Ledger, tb: TrialBalance, accounts: Accounts, periods: Periods, audit: AuditTrail }[page] ?? Dashboard;
@@ -160,7 +167,7 @@ export default function App() {
             <div className="who">
               <span className="avatar">{initials}</span>
               <div><b>{ctx.user.fullName}</b><small>{ctx.entity.roles.join(', ')}</small></div>
-              <button className="btn sm" onClick={() => { setToken(null); setAuthed(false); setMe(null); setEntity(null); }}>Switch user</button>
+              <button className="btn sm" onClick={signOut}>Switch user</button>
             </div>
           </div>
           <div className="page"><Page key={`${page}-${entityId}`} /></div>

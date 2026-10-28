@@ -185,11 +185,32 @@ async function audit(tx, ev) {
   );
 }
 
+// apps/api/src/lib/config.ts
+var CONFIG_KEYS = ["AUTH_SECRET", "STAGING_ACCESS_CODE", "CORS_ORIGIN"];
+var fromDb = {};
+function getConfig(key) {
+  const env = process.env[key];
+  return env !== void 0 && env !== "" ? env : fromDb[key];
+}
+async function loadConfigFromDb(db) {
+  const missing = CONFIG_KEYS.filter((k) => !process.env[k]);
+  fromDb = {};
+  if (!missing.length) return [];
+  try {
+    const r = await db.query("SELECT key, value FROM app_config WHERE key = ANY($1::text[])", [missing]);
+    for (const row of r.rows) fromDb[row.key] = row.value;
+    return r.rows.map((x) => x.key);
+  } catch (e) {
+    if (e.code === "42P01") return [];
+    throw e;
+  }
+}
+
 // apps/api/src/lib/auth.ts
 import { createHmac, timingSafeEqual } from "node:crypto";
 var TTL_SECONDS = 8 * 3600;
 function secret() {
-  const s = process.env.AUTH_SECRET;
+  const s = getConfig("AUTH_SECRET");
   if (!s || s.length < 32) {
     throw new DomainError(
       "AUTH_NOT_CONFIGURED",
@@ -1071,8 +1092,28 @@ var STATUS = {
 };
 function buildApp(db, opts = {}) {
   const app2 = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024 });
+  app2.removeContentTypeParser("application/json");
+  app2.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body, done) => {
+    const text = String(body ?? "");
+    if (text.trim() === "") return done(null, void 0);
+    try {
+      done(null, JSON.parse(text));
+    } catch {
+      const e = new Error("Request body is not valid JSON");
+      e.statusCode = 400;
+      done(e, void 0);
+    }
+  });
+  app2.addHook("onReady", async () => {
+    await loadConfigFromDb(db);
+  });
   app2.register(cors, {
-    origin: process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()) ?? true,
+    // Allow-list from CORS_ORIGIN (env or app_config), evaluated per request; unset = allow all.
+    origin: (origin, cb) => {
+      const list = getConfig("CORS_ORIGIN");
+      if (!list || !origin) return cb(null, true);
+      cb(null, list.split(",").map((o) => o.trim().replace(/\/$/, "")).includes(origin));
+    },
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-access-code"],
     maxAge: 600
@@ -1101,7 +1142,7 @@ function buildApp(db, opts = {}) {
     return { ok: true, service: "pep-erp-api", version: "0.1.0" };
   });
   const checkAccessCode = (given) => {
-    const code = process.env.STAGING_ACCESS_CODE;
+    const code = getConfig("STAGING_ACCESS_CODE");
     if (!code) return;
     const a = Buffer.from(String(given ?? "")), b = Buffer.from(code);
     if (a.length !== b.length || !timingSafeEqual2(a, b)) throw new DomainError("ACCESS_CODE_REQUIRED", "Enter the staging access code");

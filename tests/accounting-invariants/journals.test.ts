@@ -29,6 +29,19 @@ describe('Journal posting invariants', () => {
     expect(j2.journal_no).toBe('JV-2026-000002');
   });
 
+  it('workflow buttons work when the browser sends content-type JSON with an empty body', async () => {
+    const d = await c.call('ama', 'POST', `/api/entities/${c.T}/journals`, base({ description: 'empty-body regression' }));
+    const id = d.json().id;
+    const h = { 'content-type': 'application/json' };
+    expect((await c.call('ama', 'POST', `/api/entities/${c.T}/journals/${id}/submit`, undefined, h)).statusCode).toBe(200);
+    expect((await c.call('kofi', 'POST', `/api/entities/${c.T}/journals/${id}/approve`, undefined, h)).statusCode).toBe(200);
+    const p = await c.call('kofi', 'POST', `/api/entities/${c.T}/journals/${id}/post`, undefined, h);
+    expect(p.statusCode).toBe(200);
+    expect(p.json().status).toBe('posted');
+    const bad = await c.app.inject({ method: 'POST', url: `/api/entities/${c.T}/journals`, headers: { ...h, authorization: `Bearer ${c.tokens.ama}` }, payload: '{not json' });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it('#2 GHS 1,000 Dr vs GHS 999 Cr cannot be submitted', async () => {
     const d = await c.call('ama', 'POST', `/api/entities/${c.T}/journals`, base({
       lines: [{ accountId: bank, debit: '1000.00' }, { accountId: capital, credit: '999.00' }] }));

@@ -24,7 +24,7 @@ export async function apiFetch(url: string, init?: RequestInit): Promise<Respons
 export async function api<T = any>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await apiFetch(`${API_BASE}/api${path}`, {
     method: init.method ?? 'GET',
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: { ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });
   const json = await res.json().catch(() => ({}));
