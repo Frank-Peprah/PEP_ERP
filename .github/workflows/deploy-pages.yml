@@ -1,0 +1,61 @@
+# Builds the React web app and publishes it to GitHub Pages.
+# Requires: Settings → Pages → Build and deployment → Source = "GitHub Actions".
+# The API stays on Supabase; the app calls it directly (VITE_API_BASE).
+name: Deploy web app to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_BASE: /${{ github.event.repository.name }}/
+      VITE_API_BASE: https://ppyancjjjsaogyjpkxcr.supabase.co/functions/v1/pep-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check and build web app
+        run: npm run build:web
+      - name: Prepare Pages artefact
+        run: |
+          cp apps/web/dist/index.html apps/web/dist/404.html   # deep links fall back to the app
+          touch apps/web/dist/.nojekyll                          # serve files as-is, no Jekyll
+          rm -f apps/web/dist/.htaccess                          # Apache-only, unused on Pages
+          test -f apps/web/dist/index.html
+          grep -q "${VITE_BASE}assets/" apps/web/dist/index.html || { echo "Asset paths do not use base ${VITE_BASE}"; exit 1; }
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

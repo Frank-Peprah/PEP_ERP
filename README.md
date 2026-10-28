@@ -45,7 +45,7 @@ npx tsx tests/perf/tb-100k.ts     # performance check: 100,000 posted lines
 |---|---|---|
 | Database | Supabase project `pep-erp-staging` (eu-west-2, London) | Migrations 001–002 applied; RLS on, public REST roles revoked |
 | API | Supabase Edge Function `pep-api` | Same Fastify app, bundled by `node scripts/build-edge.mjs` |
-| Web app | SiteGround (static upload, see `docs/deploy-siteground.md`) or Netlify (`netlify.toml`) | SiteGround build sets `VITE_API_BASE`; Netlify forwards `/api/*` |
+| Web app | GitHub Pages: https://frank-peprah.github.io/PEP_ERP/ (`docs/deploy-github-pages.md`); also SiteGround or Netlify | Built by GitHub Actions with `VITE_BASE=/PEP_ERP/` and `VITE_API_BASE` |
 | Access | Staging access code + demo users | Secrets `AUTH_SECRET`, `STAGING_ACCESS_CODE` set in Supabase |
 
 Re-seed an empty staging database with `database/seeds/demo_seed.sql` (pure SQL; refuses to run if entities exist).

@@ -190,7 +190,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 var TTL_SECONDS = 8 * 3600;
 function secret() {
   const s = process.env.AUTH_SECRET;
-  if (!s || s.length < 32) throw new Error("AUTH_SECRET must be set (min 32 chars)");
+  if (!s || s.length < 32) {
+    throw new DomainError(
+      "AUTH_NOT_CONFIGURED",
+      "Sign-in is not configured on the server. An administrator must set the AUTH_SECRET secret (at least 32 characters)."
+    );
+  }
   return s;
 }
 function issueToken(userId, now = Date.now()) {
@@ -1047,6 +1052,7 @@ async function summary(db, scope, periodId) {
 
 // apps/api/src/app.ts
 var STATUS = {
+  AUTH_NOT_CONFIGURED: 503,
   UNAUTHENTICATED: 401,
   ACCESS_CODE_REQUIRED: 401,
   FORBIDDEN: 403,

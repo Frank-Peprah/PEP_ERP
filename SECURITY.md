@@ -23,7 +23,7 @@
 ## Staging posture
 - Holds DEMO data only. Login is gated by `STAGING_ACCESS_CODE` (constant-time compare) and issues the same signed tokens.
 - Supabase `anon`/`authenticated` roles have no privileges on PEP tables; RLS is enabled with no policies.
-- `X-Robots-Tag: noindex` and frame-deny headers on the Netlify site.
+- `X-Robots-Tag: noindex` and frame-deny headers on Netlify/SiteGround. GitHub Pages cannot set custom headers, and its URL is public, so `STAGING_ACCESS_CODE` must be set.
 - Blocker 1 (real identity + MFA) must close before any real Trulander data is loaded into staging.
 
 ## Known limitation

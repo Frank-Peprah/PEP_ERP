@@ -12,8 +12,17 @@ export const setToken = (t: string | null) => {
 };
 export const hasToken = () => !!token;
 
+/** Message shown when the browser cannot reach the API at all (offline, DNS, blocked cross-origin). */
+export const NETWORK_MESSAGE = `Can't reach the PEP API${API_BASE ? ` at ${new URL(API_BASE).host}` : ''}. Check your internet connection and try again; if it keeps happening, the API may be down or blocking this site's address.`;
+
+/** fetch() that turns network-level failures into a readable ApiError. */
+export async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  try { return await fetch(url, init); }
+  catch { throw new ApiError('NETWORK', NETWORK_MESSAGE, 0); }
+}
+
 export async function api<T = any>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}/api${path}`, {
+  const res = await apiFetch(`${API_BASE}/api${path}`, {
     method: init.method ?? 'GET',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),

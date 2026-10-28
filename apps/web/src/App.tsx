@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, API_BASE, hasToken, setToken } from './api';
+import { api, API_BASE, apiFetch, hasToken, setToken } from './api';
 import { AppCtx, Icon, Logo, type Ctx, type Entity } from './ui';
 import Dashboard from './pages/Dashboard';
 import Journals from './pages/Journals';
@@ -40,8 +40,8 @@ function Login({ onDone }: { onDone: () => void }) {
   const [needCode, setNeedCode] = useState(false);
   const [code, setCode] = useState(() => { try { return sessionStorage.getItem('pep.access') ?? ''; } catch { return ''; } });
   const loadUsers = (c: string) => {
-    fetch(`${API_BASE}/api/dev/users`, { headers: c ? { 'x-access-code': c } : {} }).then(async (r) => {
-      const j = await r.json();
+    apiFetch(`${API_BASE}/api/dev/users`, { headers: c ? { 'x-access-code': c } : {} }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
       if (r.status === 401 && j?.error?.code === 'ACCESS_CODE_REQUIRED') { setNeedCode(true); setUsers([]); if (c) setErr('That access code is not correct.'); return; }
       if (!r.ok) { setErr(j?.error?.message ?? 'Could not load users'); return; }
       setErr(''); setUsers(j);

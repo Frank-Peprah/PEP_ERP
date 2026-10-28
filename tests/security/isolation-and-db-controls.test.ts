@@ -45,6 +45,19 @@ describe('#17 entity isolation', () => {
   });
 });
 
+describe('Server configuration errors are explicit', () => {
+  it('login without AUTH_SECRET returns 503 AUTH_NOT_CONFIGURED, not a generic 500', async () => {
+    const saved = process.env.AUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      const r = await c.app.inject({ method: 'POST', url: '/api/auth/dev-login', payload: { email: 'ama@pep.local' } });
+      expect(r.statusCode).toBe(503);
+      expect(r.json().error.code).toBe('AUTH_NOT_CONFIGURED');
+      expect(r.json().error.message).toContain('AUTH_SECRET');
+    } finally { process.env.AUTH_SECRET = saved; }
+  });
+});
+
 describe('Cross-origin access (web app on a separate host, e.g. SiteGround)', () => {
   it('preflight allows every method and header the web app uses', async () => {
     for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
