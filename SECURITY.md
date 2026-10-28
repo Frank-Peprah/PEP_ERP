@@ -8,6 +8,9 @@
 - Tax ID stored only as `tin_encrypted` (bytea) and masked in API responses.
 - Audit log append-only (UPDATE/DELETE/TRUNCATE blocked by trigger) and SHA-256 hash-chained; `verify_audit_chain()` detects tampering.
 - Migration runner refuses `--reset` in production and detects edited migrations.
+- Statement runs (R2): pack frozen at generation and hashed by the database; final/superseded/rejected runs immutable,
+  no deletes; final requires an approver and finaliser other than the preparer (DB check + service SoD); stale-run
+  detection via a fingerprint of ledger, mappings, template, materiality and comparative run; every step audit-logged.
 
 ## Production blockers (must close before any live financial data)
 | # | Item | Owner | Target |

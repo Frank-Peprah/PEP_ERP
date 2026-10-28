@@ -8,6 +8,7 @@ import TrialBalance from './pages/TrialBalance';
 import Accounts from './pages/Accounts';
 import Periods from './pages/Periods';
 import AuditTrail from './pages/AuditTrail';
+import Statements from './pages/Statements';
 
 const NAV: { group: string; items: { id: string; label: string; icon: string; perm?: string; soon?: string }[] }[] = [
   { group: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: 'dash', perm: 'reports.read' }] },
@@ -19,8 +20,8 @@ const NAV: { group: string; items: { id: string; label: string; icon: string; pe
     { id: 'periods', label: 'Periods & Close', icon: 'period', perm: 'entity.read' },
   ] },
   { group: 'Reporting', items: [
-    { id: 'fs', label: 'Financial Statements', icon: 'fs', soon: 'R2' },
-    { id: 'notes', label: 'Notes to Accounts', icon: 'notes', soon: 'R2' },
+    { id: 'fs', label: 'Financial Statements', icon: 'fs', perm: 'reports.read' },
+    { id: 'notes', label: 'Notes to Accounts', icon: 'notes', perm: 'reports.read' },
   ] },
   { group: 'Operations', items: [
     { id: 'ar', label: 'Receivables', icon: 'ar', soon: 'R3' }, { id: 'ap', label: 'Payables', icon: 'ap', soon: 'R3' },
@@ -134,12 +135,12 @@ export default function App() {
     : <div className="empty">Loading…</div>;
 
   const initials = ctx.user.fullName.split(' ').map((s) => s[0]).slice(0, 2).join('');
-  const Page = { dashboard: Dashboard, journals: Journals, ledger: Ledger, tb: TrialBalance, accounts: Accounts, periods: Periods, audit: AuditTrail }[page] ?? Dashboard;
+  const Page = { dashboard: Dashboard, journals: Journals, ledger: Ledger, tb: TrialBalance, accounts: Accounts, periods: Periods, audit: AuditTrail, fs: Statements, notes: Statements }[page] ?? Dashboard;
 
   return (
     <AppCtx.Provider value={ctx}>
       <div className="shell">
-        <aside className="side">
+        <aside className="side no-print">
           <div className="brand"><Logo /><div><b>PEP ERP</b><small>ACCOUNTING · COMPLIANCE · INSIGHT</small></div></div>
           <nav className="nav">
             {NAV.map((g) => (
@@ -148,7 +149,7 @@ export default function App() {
                 {g.items.filter((i) => i.soon || !i.perm || ctx.perms.has(i.perm)).map((i) => (
                   <a key={i.id} className={`${page === i.id ? 'active' : ''} ${i.soon ? 'soon' : ''}`}
                      title={i.soon ? `Planned for Release ${i.soon.slice(1)}` : ''}
-                     onClick={() => !i.soon && go(i.id)}>
+                     onClick={() => !i.soon && go(i.id, i.id === 'notes' ? { tab: 'notes' } : {})}>
                     <Icon n={i.icon} />{i.label}{i.soon && <span className="tag">{i.soon}</span>}
                   </a>
                 ))}
@@ -157,7 +158,7 @@ export default function App() {
           </nav>
         </aside>
         <main className="main">
-          <div className="top">
+          <div className="top no-print">
             <div className="search"><Icon n="search" size={15} />Search accounts, journals… <span className="mono" style={{ marginLeft: 'auto', fontSize: 11 }}>R2</span></div>
             <div className="spacer" />
             <select className="pill-select" value={entityId ?? ''} onChange={(e) => { setEntityId(e.target.value); go('dashboard'); }}>

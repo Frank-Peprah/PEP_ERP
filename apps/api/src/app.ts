@@ -8,12 +8,15 @@ import { issueToken, loadActor, loadScope, verifyToken, type Actor, type EntityS
 import * as J from './services/journals.js';
 import * as S from './services/setup.js';
 import * as R from './services/reports.js';
+import * as FS from './services/statements.js';
 
 const STATUS: Record<string, number> = {
   AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
   CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409,
   ACCOUNT_HAS_ACTIVITY: 409, REFERENCED: 409, POSTED_JOURNAL_IMMUTABLE: 409, JOURNAL_LINES_IMMUTABLE: 409,
-  PERIOD_LOCKED: 423,
+  PERIOD_LOCKED: 423, PERIODS_NOT_LOCKED: 423, STATEMENT_STALE: 409, STATEMENT_HAS_BLOCKING_EXCEPTIONS: 422,
+  STATEMENT_RUN_IMMUTABLE: 409, STATEMENT_CONTENT_IMMUTABLE: 409, STATEMENT_RUN_DELETE_FORBIDDEN: 409, NO_TEMPLATE: 422,
+  REASON_REQUIRED: 422, INVALID_STATUS_TRANSITION: 409,
 };
 
 declare module 'fastify' {
@@ -68,7 +71,7 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
 
   app.get('/api/health', async () => {
     await db.query('SELECT 1');
-    return { ok: true, service: 'pep-erp-api', version: '0.1.0' };
+    return { ok: true, service: 'pep-erp-api', version: '0.2.0' };
   });
 
   // Staging gate: when STAGING_ACCESS_CODE is set, demo login and the user list require it.
@@ -165,6 +168,20 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
     return R.trialBalance(db, req.scope!, { periodId: q.periodId, basis: q.basis, includeZero: q.includeZero === 'true' });
   });
   app.get(`${E}/summary`, { preHandler: scoped }, async (req) => R.summary(db, req.scope!, (req.query as any).periodId));
+  // ── Release 2: financial statements ──
+  app.get(`${E}/statement-preview`, { preHandler: scoped }, async (req) => FS.previewPack(db, req.scope!, (req.query as any).periodId));
+  app.get(`${E}/statement-runs`, { preHandler: scoped }, async (req) => FS.listRuns(db, req.scope!));
+  app.post(`${E}/statement-runs`, { preHandler: scoped }, async (req, reply) => {
+    const periodId = (req.body as any)?.periodId;
+    if (!periodId) throw new DomainError('VALIDATION', 'periodId is required');
+    reply.status(201);
+    return FS.generateRun(db, req.scope!, req.actor!, periodId);
+  });
+  app.get(`${E}/statement-runs/:id`, { preHandler: scoped }, async (req) => FS.getRun(db, req.scope!, (req.params as P).id));
+  for (const action of ['submit', 'approve', 'finalize', 'return', 'reject'] as const) {
+    app.post(`${E}/statement-runs/:id/${action}`, { preHandler: scoped }, async (req) =>
+      FS.transitionRun(db, req.scope!, req.actor!, (req.params as P).id, action, { reason: (req.body as any)?.reason }));
+  }
   app.get(`${E}/audit`, { preHandler: scoped }, async (req) => S.listAudit(db, req.scope!, Number((req.query as any).limit ?? 200)));
 
   return app;

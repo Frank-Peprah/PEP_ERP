@@ -64,13 +64,13 @@ Redeploy the API after code changes: `node scripts/build-edge.mjs`, then deploy 
 
 | Delivered | Excluded (next releases) |
 |---|---|
-| Entities, FYs, monthly periods, lock/reopen | Close checklist beyond TB-balance gate |
-| Chart of accounts (hierarchy, mappings, flags) | Statement engine & notes (R2) |
+| Entities, FYs, monthly periods, lock/reopen | Close checklist beyond TB-balance gate; year-end closing journal |
+| Chart of accounts (hierarchy, mappings, flags) | Disclosure checklist, narrative notes editor (R2b) |
 | Journal lifecycle draft→submitted→approved→posted, return, reject | Attachments / evidence store (R1b) |
 | Linked reversals; gapless posting numbers per entity/FY | CSV/XLSX import (R1b) — idempotency key already supported |
 | Ledger with running balance & drill-down; TB (YTD/period) with exceptions | Adjusted vs unadjusted TB split (needs adjustment flag) |
 | RBAC per entity; SoD; entity isolation | Year-end close journal to retained earnings |
-| Append-only, SHA-256 hash-chained audit log | Subledgers (R3), tax (R4), AI (R5), consolidation (R6) |
+| Append-only, SHA-256 hash-chained audit log; **R2:** IFRS statements, notes, comparatives, cross-checks, draft→review→approve→final runs, PDF/Excel export | Subledgers (R3), tax (R4), AI (R5), consolidation (R6) |
 | Multi-currency journal capture (rate per journal) | FX revaluation, rate tables |
 
 See `ARCHITECTURE.md`, `ACCOUNTING_RULES.md`, `SECURITY.md`, `docs/decisions/`.

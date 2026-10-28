@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0 — 2026-10-28 — Release 2: Financial Reporting & Assurance Engine
+- **Statement engine** (`apps/api/src/services/statements.ts`): statement of financial position, profit or loss and OCI
+  (expenses by function), changes in equity, cash flows (indirect method) and notes, generated from posted ledger lines
+  only, through a versioned template (`IFRS_GENERAL` v1). Retained earnings include prior-year results presentationally.
+- **Cross-checks on every pack:** SFP balances; P&L ties to the ledger result; net cash flow equals movement in cash;
+  changes in equity close at SFP equity; every note casts to its statement line; every balance mapped.
+- **Exceptions:** unmapped balances (blocking above entity materiality, warning below), mapping type mismatches,
+  unknown line codes, unclassified cash-flow movements, open periods, template narrative wording, live comparatives.
+- **Comparatives:** year-end packs take the prior year from its *final* frozen pack; interim packs take the prior
+  year-end position from that pack and the same months' performance from the ledger (IAS 34 pattern).
+- **Workflow:** draft → under review → approved → final, plus return, reject, withdraw. Accountant prepares;
+  controller approves and finalises; the preparer can never approve or finalise (SoD). Finalisation requires zero
+  blocking exceptions and every period to the statement date locked. A run goes stale (409) if the ledger, mappings or
+  comparatives change after generation. Regenerating supersedes the open run for the same date.
+- **Migration 004:** `report_templates` (append-only), `financial_statement_runs` (pack frozen at insert, SHA-256
+  content hash computed by the database, final/superseded/rejected immutable, no deletes, one final run per date,
+  DB check that a final run has an independent approver), entity `materiality_threshold`, statement permissions.
+- **Web:** Financial Statements and Notes pages — live preview, run list, workflow timeline, checks & exceptions,
+  DRAFT watermark until final, Print/PDF (all statements, A4), Excel workbook (one sheet per statement), CSV.
+- Tests: 65 (adds 17 statement tests covering spec #10, #11, #12, #16, #18, #21).
+
 ## 0.1.4 — 2026-10-28 — Pages live; workflow buttons fixed
 - Pages: the built app is committed to `app/` with root `index.html`/`404.html` redirects and `.nojekyll`, so the
   branch-based Pages build publishes the app. That ends the race in which Jekyll overwrote the Actions deploy with README.md.
