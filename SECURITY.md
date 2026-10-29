@@ -15,10 +15,10 @@
 ## Production blockers (must close before any live financial data)
 | # | Item | Owner | Target |
 |---|---|---|---|
-| 1 | Replace dev login with an identity provider (OIDC) + MFA for preparer/approver/controller/admin | Engineering lead | Before R2 UAT |
-| 2 | Non-superuser application DB role; revoke DDL; enable PostgreSQL RLS by `entity_id` | Engineering lead | Before R2 UAT |
+| 1 | Replace dev login with an identity provider (OIDC) + MFA for preparer/approver/controller/admin | Engineering lead | **Built (Phase 0, ADR-006):** Supabase Auth + mandatory TOTP; demo login refused in production. Open: invitation flow, staging users |
+| 2 | Non-superuser application DB role; revoke DDL; enable PostgreSQL RLS by `entity_id` | Engineering lead | **Built (Phase 0, ADR-007):** `pep_app` role, RLS read policies by entity + permission + MFA. Open: dedicated LOGIN role in production (Phase 4) |
 | 3 | TIN encryption with managed keys (KMS) and rotation | Engineering lead | Before first real entity |
-| 4 | Rate limiting, security headers, CORS allow-list | Engineering lead | Before staging |
+| 4 | Rate limiting, security headers, CORS allow-list | Engineering lead | CORS allow-list and CSP done; HSTS/frame headers on SiteGround. Open: rate limiting (Phase 0 remainder) |
 | 5 | Backups, PITR, restore test; define RPO/RTO | Ops | Before production |
 | 6 | Audit-chain anchoring (periodic hash published off-database) | Engineering lead | Before production |
 | 7 | External penetration test | CEO sign-off | Before production |

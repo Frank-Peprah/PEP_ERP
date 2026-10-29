@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0-dev — 2026-10-29 — Blueprint Phase 0 (in progress): identity, least privilege, CI
+Plan of record: `docs/blueprint/` (Build Blueprint v1.0). Status: `docs/phases/P0-status.md`.
+- **Supabase Auth with mandatory two-step verification** (ADR-006): the API verifies Supabase JWTs (JWKS or legacy
+  HS256; audience and issuer checked); finance routes require aal2 (`MFA_REQUIRED`); demo login refused in production.
+  Web sign-in: email + password, then TOTP enrolment (QR + manual key) or challenge; auth client lazy-loaded (22 KB).
+- **Least-privilege API role** (ADR-007, migrations 005–006): `pep_app` (no superuser, no BYPASSRLS, not owner),
+  applied per transaction; audit log insert-only; statement runs undeletable; no DDL; cannot disable triggers.
+- **RLS read policies** for Supabase Auth users: entity + permission + MFA; sensitive columns not granted; no writes.
+- **CI** (`.github/workflows/ci.yml`): Postgres 17, full suite as `pep_app`, budgets, 14 browser journeys with axe,
+  edge build; licence gate, npm audit, gitleaks.
+- Tests: 96 (adds 14 role/RLS and 8 Supabase Auth tests). Staging: Supabase security advisor 0 findings.
+- Fix: Edge entry no longer writes reserved `SUPABASE_*` env vars (caused a 15-minute staging outage on deploy).
+
 ## 0.3.0 — 2026-10-29 — UI Phase 0: design system, app shell, dashboard
 Blueprint: "PEP ERP — UI Blueprint" (100 screens, six phases, go-live 19 Feb 2027).
 - **Stack (Option A):** React 19, Vite 8, Tailwind CSS 4, Radix UI primitives, React Router 8, TanStack Query, cmdk,
