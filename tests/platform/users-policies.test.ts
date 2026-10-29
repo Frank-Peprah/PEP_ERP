@@ -165,7 +165,7 @@ describe('System health (S06)', () => {
       const r = await c.call(who, 'GET', `${E()}/system-health`);
       expect(r.statusCode, r.body).toBe(200);
       const h = r.json();
-      expect(h.api.version).toBe('0.4.0-dev');
+      expect(h.api.version).toBe('0.5.0-dev');
       expect(h.checks.map((x: any) => x.key)).toEqual(['audit_chain', 'ledger_balanced', 'approvals_backlog']);
       expect(h.checks.find((x: any) => x.key === 'audit_chain').ok).toBe(true);
       expect(h.checks.find((x: any) => x.key === 'ledger_balanced').ok).toBe(true);
