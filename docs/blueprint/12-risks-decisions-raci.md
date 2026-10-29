@@ -6,7 +6,7 @@ Each decision has a default. If the default is used, the decision can be revisit
 
 | # | Decision | Options | Default / recommendation | Owner | Due | Impact if late |
 |---|---|---|---|---|---|---|
-| D1 | Supabase plan for production | Free / **Pro + PITR** | **Pro + PITR** for production. Staging stays free until preview branching is needed | CEO (billing) | Mon 2 Nov 2026 | Blocks preview branches, the production project and backups |
+| D1 | Supabase plan for production | Free / **Pro + PITR** | **Pro + PITR** for production (about $140/month). **Agreed 29 Oct 2026:** staging stays on the free plan; Pro is bought when the production project is created | CEO (billing) | Mon 25 Jan 2027 | Blocks the production project, backups and PITR |
 | D2 | Repository visibility | Public / **Private** | **Private.** Move staging web off GitHub Pages to Netlify or Cloudflare Pages (free tiers work with private repos) | CEO | Mon 2 Nov 2026 | Schema and controls stay publicly readable |
 | D3 | Production web host | Netlify / Cloudflare Pages / SiteGround | **Cloudflare Pages or Netlify** (security headers, previews). SiteGround as a static fallback | CEO | Fri 6 Nov 2026 | Phase 4 |
 | D4 | Year-end close | Closing journal / presentational | **Decided:** closing journal to retained earnings (built 29 Oct 2026, API 0.5.0-dev) | CEO (FCCA) | Closed | — |

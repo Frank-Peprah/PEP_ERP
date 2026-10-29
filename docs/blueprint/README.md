@@ -25,7 +25,7 @@
    - After go-live: Ghana tax engine with E-VAT (Mar–Apr), AI (Apr–May), assets and payroll (May–Jul), then group consolidation and industry packs (Jul–Dec 2027).
    → [09](09-phased-delivery-plan.md)
 5. **Three decisions before Phase 0 starts on Mon 2 Nov:**
-   - D1 Supabase Pro + PITR for production.
+   - D1 Supabase Pro + PITR for production *(v1.3: moved to Mon 25 Jan 2027; staging stays free)*.
    - D2 make the repo private.
    - D17 name a finance lead.
    → [12](12-risks-decisions-raci.md)
@@ -56,3 +56,4 @@ The blueprint is versioned with the code. Any change to scope, dates or architec
 | 1.0 | 29 Oct 2026 | First issue, with 22 fixes from an independent consistency review applied; reconciled with UI Phase 0 (v0.3.0, ADR-005) already on `main` |
 | 1.1 | 29 Oct 2026 | D4 and D5 closed. Trulander holds no foreign currency: the system is FX-ready (currencies enabled per entity, Bank of Ghana rates), and IAS 21 revaluation moves from Phase 1 to when an entity first enables a currency |
 | 1.2 | 29 Oct 2026 | D17 closed: Frank Peprah is company lead and finance lead. User manual added to the Definition of Done |
+| 1.3 | 29 Oct 2026 | D1 due date moved to Mon 25 Jan 2027: staging stays on the free plan; Supabase Pro + PITR bought for production in Phase 4 |

@@ -58,7 +58,7 @@
 - New tests for MFA, AAL1 denial, PostgREST isolation, `pep_app` privilege limits and licence policy all pass.
 - The journal workflow passes end to end in Playwright on staging with real auth.
 
-**Decisions needed:** D1 Supabase Pro, D2 repo visibility and D17 finance lead by Mon 2 Nov; D3 production web host by Fri 6 Nov (12).
+**Decisions needed:** D2 repo visibility by Mon 2 Nov; D3 production web host by Fri 6 Nov (12). *(v1.3: D17 closed; D1 moved to Mon 25 Jan 2027, Phase 4.)*
 
 ## Phase 1 — Ledger completion (R1b) · Mon 16 Nov → Fri 27 Nov 2026
 
