@@ -111,7 +111,9 @@ export async function listJournals(db: Db, entityId: string, q: { status?: strin
 }
 
 /** Create a draft. Drafts may be unbalanced (work in progress); submission enforces balance. */
-export async function createDraft(db: Db, scope: EntityScope, actor: Actor, input: JournalInput) {
+/** internal: system-generated journals (year-end close) that manual entry may not create. */
+export async function createDraft(db: Db, scope: EntityScope, actor: Actor, input: JournalInput,
+                                  internal?: { journalType: 'year_end_close'; closesFinancialYearId: string }) {
   requirePerm(scope, 'journal.prepare');
   return withTx(db, async (tx) => {
     const ent = await entityRow(tx, scope.entityId);
@@ -128,8 +130,8 @@ export async function createDraft(db: Db, scope: EntityScope, actor: Actor, inpu
         return { ...(await getJournal(tx, scope.entityId, ex.rows[0].id)), idempotentReplay: true };
       }
     }
-    const type = input.journalType ?? 'manual';
-    if (!ALLOWED_TYPES.has(type)) throw new DomainError('INVALID_JOURNAL_TYPE', `Journal type ${type} cannot be created manually`);
+    const type = internal?.journalType ?? input.journalType ?? 'manual';
+    if (!internal && !ALLOWED_TYPES.has(type)) throw new DomainError('INVALID_JOURNAL_TYPE', `Journal type ${type} cannot be created manually`);
     if (!input.description?.trim()) throw new DomainError('DESCRIPTION_REQUIRED', 'Description is required');
     const currency = (input.currency ?? ent.functional_currency).toUpperCase();
     const fxRate = String(input.fxRate ?? 1);
@@ -139,10 +141,10 @@ export async function createDraft(db: Db, scope: EntityScope, actor: Actor, inpu
     await validateAccounts(tx, scope.entityId, lines.map((l) => l.accountId), input.journalDate);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description,
-                                    currency, fx_rate, prepared_by, idempotency_key, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual') RETURNING id`,
+                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [scope.entityId, type, input.journalDate, period.id, input.reference ?? null, input.description.trim(),
-       currency, fxRate, actor.id, input.idempotencyKey ?? null]);
+       currency, fxRate, actor.id, input.idempotencyKey ?? null, internal ? 'system' : 'manual', internal?.closesFinancialYearId ?? null]);
     const id = j.rows[0].id;
     await writeLines(tx, id, lines);
     const full = await getJournal(tx, scope.entityId, id);
@@ -165,6 +167,7 @@ export async function updateDraft(db: Db, scope: EntityScope, actor: Actor, id: 
       throw new DomainError('STALE_VERSION', 'Journal was changed by someone else; reload and retry');
     }
     if (j.journal_type === 'reversal') throw new DomainError('JOURNAL_NOT_EDITABLE', 'Reversal journals cannot be edited; reject and re-create');
+    if (j.journal_type === 'year_end_close') throw new DomainError('JOURNAL_NOT_EDITABLE', 'Closing journals are computed by the system; reject it and generate the close again');
     const currency = (input.currency ?? j.currency).toUpperCase();
     const fxRate = String(input.fxRate ?? j.fx_rate);
     const period = await periodFor(tx, scope.entityId, input.journalDate);

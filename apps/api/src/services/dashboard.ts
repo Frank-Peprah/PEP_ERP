@@ -20,7 +20,7 @@ async function pl(db: Db, entityId: string, from: string, to: string) {
   const r = await db.query(
     `SELECT COALESCE(-sum(net) FILTER (WHERE account_type = 'revenue'), 0) AS revenue,
             COALESCE(sum(net) FILTER (WHERE account_type = 'expense'), 0) AS expenses
-       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3`, [entityId, from, to]);
+       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3 AND journal_type <> 'year_end_close'`, [entityId, from, to]);
   return { revenue: D(r.rows[0].revenue), expenses: D(r.rows[0].expenses) };
 }
 
@@ -53,8 +53,8 @@ export async function dashboard(db: Db, scope: EntityScope, periodId?: string) {
   // Twelve months of the financial year, zero-filled, so the chart never skips a month.
   const months = await db.query(
     `SELECT to_char(m, 'YYYY-MM') AS month,
-            COALESCE((SELECT -sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'revenue' AND date_trunc('month', journal_date) = m), 0) AS revenue,
-            COALESCE((SELECT sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'expense' AND date_trunc('month', journal_date) = m), 0) AS expenses
+            COALESCE((SELECT -sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'revenue' AND journal_type <> 'year_end_close' AND date_trunc('month', journal_date) = m), 0) AS revenue,
+            COALESCE((SELECT sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'expense' AND journal_type <> 'year_end_close' AND date_trunc('month', journal_date) = m), 0) AS expenses
        FROM generate_series(date_trunc('month', $2::date), date_trunc('month', $3::date), interval '1 month') m ORDER BY m`,
     [scope.entityId, from, p.fy_end]);
   const monthly = months.rows.map((r) => ({

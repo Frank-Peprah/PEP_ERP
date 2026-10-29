@@ -50,7 +50,7 @@ async function loadFacts(db: Db | Tx, entityId: string, fyStart: string, asOf: s
     `SELECT account_id,
             COALESCE(sum(net) FILTER (WHERE journal_date <= $3), 0)                       AS closing,
             COALESCE(sum(net) FILTER (WHERE journal_date <  $2), 0)                       AS opening,
-            COALESCE(sum(net) FILTER (WHERE journal_date BETWEEN $2 AND $3), 0)           AS movement
+            COALESCE(sum(net) FILTER (WHERE journal_date BETWEEN $2 AND $3 AND journal_type <> 'year_end_close'), 0) AS movement
        FROM ledger_postings WHERE entity_id = $1 AND journal_date <= $3 GROUP BY account_id`,
     [entityId, fyStart, asOf]);
   const f: Facts = { asOf, fyStart, closing: new Map(), opening: new Map(), movement: new Map() };

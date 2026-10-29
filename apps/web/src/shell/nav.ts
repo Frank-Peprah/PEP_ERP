@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, NotebookPen, BookOpenText, Scale, ListTree, CalendarCheck2, FileSpreadsheet, FileText,
-  BarChart3, HandCoins, Receipt, Landmark, Building2, Boxes, Percent, ShieldCheck, Sparkles, Settings, Users, Scale as ScaleIcon, Activity, type LucideIcon,
+  BarChart3, HandCoins, Receipt, Landmark, Building2, Boxes, Percent, ShieldCheck, Sparkles, Settings, Users, Scale as ScaleIcon, Activity, Lock, type LucideIcon,
 } from 'lucide-react';
 
 /** One navigation model drives the sidebar, the phone menu, the command palette and breadcrumbs. */
@@ -21,6 +21,7 @@ export const NAV: NavGroup[] = [
     { id: 'tb', label: 'Trial Balance', icon: Scale, path: 'trial-balance', perm: 'reports.read', keywords: 'tb balances' },
     { id: 'accounts', label: 'Chart of Accounts', icon: ListTree, path: 'accounts', perm: 'coa.read', keywords: 'coa mapping' },
     { id: 'periods', label: 'Periods & Close', icon: CalendarCheck2, path: 'periods', perm: 'entity.read', keywords: 'lock close month' },
+    { id: 'yearclose', label: 'Year-end Close', icon: Lock, path: 'year-end-close', perm: 'reports.read', keywords: 'closing journal retained earnings year end' },
   ] },
   { group: 'Reporting', items: [
     { id: 'fs', label: 'Financial Statements', icon: FileSpreadsheet, path: 'statements', perm: 'reports.read', keywords: 'ifrs sfp profit loss cash flow' },

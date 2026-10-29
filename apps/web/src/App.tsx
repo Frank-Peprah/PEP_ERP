@@ -29,6 +29,7 @@ const Statements = lazy(() => import('./pages/Statements'));
 const UsersAccess = lazy(() => import('./modules/admin/UsersAccess'));
 const ApprovalPolicies = lazy(() => import('./modules/admin/ApprovalPolicies'));
 const SystemHealth = lazy(() => import('./modules/admin/SystemHealth'));
+const YearEndClose = lazy(() => import('./modules/close/YearEndClose'));
 const SetPassword = lazy(() => import('./shell/SetPassword'));
 
 function ScreenLoading() {
@@ -131,6 +132,7 @@ const routes = [
           g('users', <UsersAccess />),
           g('approval-policies', <ApprovalPolicies />),
           g('system-health', <SystemHealth />),
+          g('year-end-close', <YearEndClose />),
           { path: '*', element: <NotFound /> },
         ],
       },

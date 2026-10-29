@@ -27,7 +27,11 @@ export async function resolvePeriod(db: Db, entityId: string, periodId?: string)
  * that have not yet been closed to retained earnings are shown as one explicit,
  * system-computed line so the TB balances without a hidden plug.
  */
-export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: string; basis?: 'ytd' | 'period'; includeZero?: boolean }) {
+/**
+ * stage 'post_close' (default): the ledger as posted, including year-end closing journals.
+ * stage 'pre_close': excludes closing journals — the year-end TB accountants review before closing.
+ */
+export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: string; basis?: 'ytd' | 'period'; includeZero?: boolean; stage?: 'pre_close' | 'post_close' }) {
   requirePerm(scope, 'reports.read');
   const p = await resolvePeriod(db, scope.entityId, q.periodId);
   const basis = q.basis ?? 'ytd';
@@ -41,9 +45,10 @@ export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: s
             count(lp.line_id) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4)::int AS line_count
        FROM accounts a
        LEFT JOIN ledger_postings lp ON lp.account_id = a.id AND lp.journal_date <= $4
+             AND ($5::boolean OR lp.journal_type <> 'year_end_close' OR lp.journal_date < $2)
       WHERE a.entity_id = $1
       GROUP BY a.id ORDER BY a.code`,
-    [scope.entityId, p.fy_start, from, p.end_date]);
+    [scope.entityId, p.fy_start, from, p.end_date, (q.stage ?? 'post_close') === 'post_close']);
   const prior = await db.query(
     `SELECT COALESCE(sum(net),0) AS net FROM ledger_postings
       WHERE entity_id = $1 AND account_type IN ('revenue','expense') AND journal_date < $2`, [scope.entityId, p.fy_start]);
@@ -103,6 +108,7 @@ export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: s
   if (!balanced) exceptions.unshift({ code: 'TB_OUT_OF_BALANCE', severity: 'blocking', message: 'Trial balance does not balance' });
   return {
     parameters: { entityId: scope.entityId, periodId: p.id, periodName: p.name, financialYear: p.fy_label, basis, from, to: p.end_date,
+                  stage: q.stage ?? 'post_close',
                   periodStatus: p.status, currency: 'functional', generatedAt: new Date().toISOString(),
                   source: 'posted journal lines (ledger_postings)' },
     rows, totals, balanced, exceptions,
@@ -150,7 +156,7 @@ export async function accountLedger(db: Db, scope: EntityScope, q: { accountId: 
 
 /** Dashboard KPIs — derived from the same TB engine, never stored separately. */
 export async function summary(db: Db, scope: EntityScope, periodId?: string) {
-  const tb = await trialBalance(db, scope, { periodId, basis: 'ytd' });
+  const tb = await trialBalance(db, scope, { periodId, basis: 'ytd', stage: 'pre_close' });
   const cash = await db.query(
     `SELECT COALESCE(sum(lp.net),0) AS net FROM ledger_postings lp JOIN accounts a ON a.id = lp.account_id
       WHERE lp.entity_id = $1 AND a.cash_flow_class = 'cash' AND lp.journal_date <= $2`, [scope.entityId, tb.parameters.to]);
@@ -161,7 +167,7 @@ export async function summary(db: Db, scope: EntityScope, periodId?: string) {
     `SELECT to_char(date_trunc('month', journal_date), 'YYYY-MM') AS m,
             COALESCE(-sum(net) FILTER (WHERE account_type='revenue'),0) AS revenue,
             COALESCE(sum(net) FILTER (WHERE account_type='expense'),0) AS expenses
-       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3 GROUP BY 1 ORDER BY 1`,
+       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3 AND journal_type <> 'year_end_close' GROUP BY 1 ORDER BY 1`,
     [scope.entityId, tb.parameters.from, tb.parameters.to]);
   const pending = await db.query(
     `SELECT status, count(*)::int AS n FROM journal_entries WHERE entity_id = $1 AND status IN ('draft','submitted','approved') GROUP BY status`,

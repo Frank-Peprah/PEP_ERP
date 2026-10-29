@@ -30,7 +30,16 @@ Owner: Group CFO. Changes require review and a new ADR where behaviour changes.
 - Source: posted journal lines only. Drafts/submitted/approved never appear.
 - YTD basis: opening = position at FY start; period basis: opening = position at period start.
 - Income-statement accounts open at zero each FY. Prior-year results not yet closed appear as an explicit, system-computed retained-earnings line (`PRIOR_YEAR_NOT_CLOSED`).
+- Year-end trial balance has two stages: `post_close` (default; includes the closing journal, so income-statement accounts are zero) and `pre_close` (`?stage=pre_close`; excludes the closing journal, for reviewing the year's results).
 - Exceptions: `TB_OUT_OF_BALANCE` (blocking), `RETAINED_EARNINGS_NOT_CONFIGURED` (blocking), `UNMAPPED_ACCOUNT`, `ABNORMAL_BALANCE`, `INACTIVE_WITH_BALANCE`.
+
+## Year-end close (decision D4: closing journal)
+- One closing journal (`journal_type = year_end_close`) per financial year, dated the last day of the year, computed by the system: every revenue and expense balance is reversed and the net goes to the entity's retained-earnings account. It cannot be edited by hand.
+- Preconditions (`CLOSE_PRECONDITIONS`): periods 1–11 locked, no unposted journals dated in the year, retained earnings configured, every earlier financial year closed (`PRIOR_YEAR_OPEN`), and something to close. The ledger itself cannot be out of balance (database invariant).
+- Authority: `year.close` (controller) generates and finalises; the journal is approved and posted by someone other than its preparer (segregation of duties applies as for any journal).
+- Finalise locks any open period and sets the year closed. The database refuses to mark a year closed without a posted, unreversed closing journal and all periods locked (`YEAR_NOT_CLOSABLE`), and refuses a closing journal not dated year-end.
+- Re-opening any period of a closed year re-opens the year (audited `year.reopen`); the close must then be reviewed and, if figures change, reversed and regenerated.
+- Reporting: profit-and-loss figures (statements, dashboard, monthly trend) exclude closing journals, so the closed year still reports its results; positions (balance sheet, cash) include them.
 
 ## Chart of accounts
 - Header (non-postable) vs posting accounts; parents must be headers in the same entity.
@@ -38,6 +47,6 @@ Owner: Group CFO. Changes require review and a new ADR where behaviour changes.
 - Contra accounts (e.g. accumulated depreciation) are configured with the opposite normal balance.
 
 ## Open decisions for professional review
-1. Year-end close mechanics (closing journal vs. presentational roll-forward) — currently presentational.
+1. ~~Year-end close mechanics~~ — resolved: closing journal (see Year-end close). Years not yet closed still roll forward presentationally (`PRIOR_YEAR_NOT_CLOSED`).
 2. Whether control accounts (AR/AP/tax) block manual journals once subledgers exist (R3) — flag exists, not enforced.
 3. FX rate source and hierarchy for Ghana (BoG reference rate vs. bank rate) — not implemented.

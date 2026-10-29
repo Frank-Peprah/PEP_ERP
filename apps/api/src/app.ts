@@ -11,12 +11,13 @@ import * as S from './services/setup.js';
 import * as R from './services/reports.js';
 import * as FS from './services/statements.js';
 import * as U from './services/users.js';
+import * as YC from './services/close.js';
 import { API_VERSION, systemHealth } from './services/health.js';
 import { dashboard } from './services/dashboard.js';
 
 const STATUS: Record<string, number> = {
   AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, MFA_REQUIRED: 403, AUTH_PROVIDER_UNAVAILABLE: 502, INVITE_FAILED: 502,
-  RATE_LIMITED: 429, USER_INACTIVE: 409, APPROVAL_POLICY_APPEND_ONLY: 409, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
+  RATE_LIMITED: 429, USER_INACTIVE: 409, CLOSE_ALREADY_EXISTS: 409, CLOSE_PRECONDITIONS: 422, YEAR_NOT_CLOSABLE: 409, CLOSING_JOURNAL_DATE: 422, APPROVAL_POLICY_APPEND_ONLY: 409, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
   CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409,
   ACCOUNT_HAS_ACTIVITY: 409, REFERENCED: 409, POSTED_JOURNAL_IMMUTABLE: 409, JOURNAL_LINES_IMMUTABLE: 409,
   PERIOD_LOCKED: 423, PERIODS_NOT_LOCKED: 423, STATEMENT_STALE: 409, STATEMENT_HAS_BLOCKING_EXCEPTIONS: 422,
@@ -188,9 +189,18 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
   });
 
   app.get(`${E}/ledger`, { preHandler: scoped }, async (req) => R.accountLedger(db, req.scope!, req.query as any));
+  // ── Year-end close (Blueprint Phase 1) ──
+  app.get(`${E}/financial-years/:id/close`, { preHandler: scoped }, async (req) => YC.previewClose(db, req.scope!, (req.params as P).id));
+  app.post(`${E}/financial-years/:id/close`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return YC.generateClose(db, req.scope!, req.actor!, (req.params as P).id);
+  });
+  app.post(`${E}/financial-years/:id/close/finalise`, { preHandler: scoped }, async (req) =>
+    YC.finaliseClose(db, req.scope!, req.actor!, (req.params as P).id));
   app.get(`${E}/trial-balance`, { preHandler: scoped }, async (req) => {
     const q = req.query as any;
-    return R.trialBalance(db, req.scope!, { periodId: q.periodId, basis: q.basis, includeZero: q.includeZero === 'true' });
+    return R.trialBalance(db, req.scope!, { periodId: q.periodId, basis: q.basis, includeZero: q.includeZero === 'true',
+      stage: q.stage === 'pre_close' ? 'pre_close' : 'post_close' });
   });
   app.get(`${E}/dashboard`, { preHandler: scoped }, async (req) => dashboard(db, req.scope!, (req.query as any).periodId));
   app.get(`${E}/summary`, { preHandler: scoped }, async (req) => R.summary(db, req.scope!, (req.query as any).periodId));

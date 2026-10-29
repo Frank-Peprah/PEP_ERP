@@ -71,6 +71,15 @@ export async function setPeriodStatus(db: Db, scope: EntityScope, actor: Actor, 
     } else {
       if (p.status === 'open') throw new DomainError('ALREADY_OPEN', 'Period is already open');
       await tx.query(`UPDATE accounting_periods SET status='open', locked_by=NULL, locked_at=NULL WHERE id=$1`, [periodId]);
+      // Re-opening any period of a closed year re-opens the year: its result may change, so the close
+      // must be reviewed (reverse the closing journal and close again if figures move).
+      const fy = await tx.query(
+        `UPDATE financial_years SET is_closed = false, closed_at = NULL, closed_by = NULL
+          WHERE id = $1 AND is_closed RETURNING id, label`, [p.financial_year_id]);
+      if (fy.rowCount) {
+        await audit(tx, { entityId: scope.entityId, actorId: actor.id, action: 'year.reopen', objectType: 'financial_year',
+          objectId: fy.rows[0].id, reason: reason ?? null, after: { label: fy.rows[0].label, reopenedPeriod: p.name } });
+      }
     }
     await audit(tx, { entityId: scope.entityId, actorId: actor.id, action: `period.${action}`, objectType: 'period', objectId: periodId,
       before: { status: p.status }, after: { status: action === 'lock' ? 'locked' : 'open' }, reason: reason ?? null });
