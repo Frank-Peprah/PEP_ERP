@@ -27,7 +27,9 @@ This section is the test for every later design decision: if a feature does not 
 6. Deposits treated as income → **deposits are contract liabilities until transfer of control (IFRS 15)**
 7. Instalment plans tracked in Excel → **contract and instalment schedule engine, with ageing, reminders and a significant-financing-component flag**
 8. Land cost not tracked per plot, so margin is unknown → **parcel cost register by component (IAS 2); cost relieved on sale**
-9. Mandate sales mix landowner money with company money → **client-money ledger and escrow reconciliation; only commission is revenue**
+9. Mandate sales mix landowner money with company money → **client-money ledger tied to a designated client account (Act 1047 s.46, s.48(1)(f)), escrow reconciliation; only commission is revenue**
+9a. Cash taken on real-estate transactions (prohibited by Act 1047 s.45) → **cash receipts blocked on agency land transactions; bank, cheque, transfer or e-money only**
+9b. Real Estate Agency Council quarterly transaction reports (s.49) prepared by hand → **report generated from the contract and receipt subledgers**
 10. Agent commissions paid ad hoc → **commission rules, accrual, capitalisation (IFRS 15.91), payout approval**
 11. Double-selling a plot → **parcel status machine (available → reserved → under contract → sold) with database uniqueness on an active contract per parcel**
 12. Litigation and title risk invisible in the books → **parcel risk flags; GLRRA score linked later; NRV review**
@@ -65,7 +67,7 @@ This section is the test for every later design decision: if a feature does not 
 | **Connectivity** | Field and receipt screens usable offline, queueing writes, with conflict-free sync for drafts. Posting always happens online (server-authoritative) |
 | **Security** | Supabase Auth with MFA for all finance roles. RLS by entity as the third layer. Least-privilege DB roles. Secrets in Vault. OWASP ASVS L2 checklist. External pen test before go-live |
 | **Auditability** | Every state change audited and hash-chained. Daily anchoring of the chain off-database. Drill-down from statement to source document |
-| **Retention** | Accounting records kept at least 6 years (Companies Act 2019 (Act 992); confirm against GRA's requirement). Soft-delete only, never hard-delete financial records |
+| **Retention** | At least 6 years from the end of the year the records relate to (Revenue Administration Act 2016, Act 915). Real-estate transaction records at least 5 years (Act 1047 s.50). Configurable per entity, never below 6 years. Soft-archive only; no hard deletes of financial records |
 | **Accessibility** | WCAG 2.1 AA. Keyboard-first entry. Tabular numerals. Emil Kowalski design-engineering rules: no animation on keyboard actions, motion under 300 ms |
 | **Localisation** | GHS default, en-GH formats, Ghana date conventions (DD/MM/YYYY), Ghana Card and TIN formats, MoMo-first payments |
 | **Licensing** | No AGPL/GPL code copied into the product. Permissive (MIT/Apache/BSD/ISC) building blocks only. Copyleft systems are studied, not copied (see 03) |
