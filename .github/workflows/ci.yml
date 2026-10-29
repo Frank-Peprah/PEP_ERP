@@ -56,9 +56,11 @@ jobs:
           (npx tsx apps/api/src/server.ts > reports/api.log 2>&1 &)
           for i in $(seq 1 30); do curl -sf localhost:4000/api/health && break; sleep 1; done
           E2E_BASE=http://localhost:4000 node tests/e2e/phase0.e2e.mjs
+          E2E_BASE=http://localhost:4000 node tests/e2e/platform.e2e.mjs
         env:
           PORT: '4000'
           PEP_DB_ROLE: pep_app   # same least-privilege role as production
+          RATE_LIMIT_AUTH_PER_MIN: '1000'   # journeys sign in many times from one IP
       - name: Edge bundle builds
         run: node scripts/build-edge.mjs
       - uses: actions/upload-artifact@v4

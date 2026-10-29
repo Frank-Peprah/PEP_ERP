@@ -26,6 +26,9 @@ const Accounts = lazy(() => import('./pages/Accounts'));
 const Periods = lazy(() => import('./pages/Periods'));
 const AuditTrail = lazy(() => import('./pages/AuditTrail'));
 const Statements = lazy(() => import('./pages/Statements'));
+const UsersAccess = lazy(() => import('./modules/admin/UsersAccess'));
+const ApprovalPolicies = lazy(() => import('./modules/admin/ApprovalPolicies'));
+const SetPassword = lazy(() => import('./shell/SetPassword'));
 
 function ScreenLoading() {
   return <div className="flex flex-col gap-3" aria-busy="true"><Skeleton className="h-6 w-56" /><Skeleton className="h-4 w-80" /><Skeleton className="mt-4 h-40" /></div>;
@@ -103,6 +106,7 @@ const g = (path: string, el: React.ReactNode) => ({ path, element: <Guard path={
 
 const routes = [
   { path: '/sign-in', element: <SignIn /> },
+  { path: '/set-password', element: <Suspense fallback={null}><SetPassword /></Suspense> },
   { path: '/offline', element: <Offline /> },
   { path: '/403', element: <NoAccess /> },
   { path: '/404', element: <NotFound /> },
@@ -123,6 +127,8 @@ const routes = [
           g('statements', <LegacyPage page={Statements} />),
           g('notes', <LegacyPage page={Statements} extra={{ tab: 'notes' }} />),
           g('audit', <LegacyPage page={AuditTrail} />),
+          g('users', <UsersAccess />),
+          g('approval-policies', <ApprovalPolicies />),
           { path: '*', element: <NotFound /> },
         ],
       },

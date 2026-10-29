@@ -18,7 +18,6 @@ const inputCls = 'h-10 w-full rounded-[var(--radius-control)] border border-line
 function SecureSignIn({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
   const [step, setStep] = useState<'credentials' | MfaStep>('credentials');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -27,7 +26,7 @@ function SecureSignIn({ onDone }: { onDone: () => void }) {
 
   const afterPassword = async () => {
     const next = await nextMfaStep();
-    if (next.kind === 'done') onDone(); else { setStep(next); setCode(''); }
+    if (next.kind === 'done') onDone(); else setStep(next);
   };
 
   if (step === 'credentials') return (
@@ -49,6 +48,22 @@ function SecureSignIn({ onDone }: { onDone: () => void }) {
   );
 
   if (step.kind === 'done') return null;
+  return <MfaForm step={step} onDone={onDone} />;
+}
+
+const FEATURES = [
+  { icon: ShieldCheck, title: 'Double-entry accounting', text: 'with controls enforced by the database' },
+  { icon: FileCheck2, title: 'IFRS financial reporting', text: 'with notes, comparatives and approvals' },
+  { icon: Landmark, title: 'Audit-ready, Ghana-first', text: 'hash-chained audit trail, GRA preparation' },
+];
+
+
+/** Second step after a password: enrol an authenticator (QR + manual key) or enter its current code. */
+export function MfaForm({ step, onDone }: { step: Exclude<MfaStep, { kind: 'done' }>; onDone: () => void }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const run = async (fn: () => Promise<void>) => { setBusy(true); setErr(''); try { await fn(); } catch (e: any) { setErr(e.message ?? String(e)); } finally { setBusy(false); } };
   return (
     <form className="mt-5 flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); run(async () => { await verifyMfa(step.factorId, code); onDone(); }); }}>
       {step.kind === 'enrol' ? (
@@ -70,12 +85,6 @@ function SecureSignIn({ onDone }: { onDone: () => void }) {
     </form>
   );
 }
-
-const FEATURES = [
-  { icon: ShieldCheck, title: 'Double-entry accounting', text: 'with controls enforced by the database' },
-  { icon: FileCheck2, title: 'IFRS financial reporting', text: 'with notes, comparatives and approvals' },
-  { icon: Landmark, title: 'Audit-ready, Ghana-first', text: 'hash-chained audit trail, GRA preparation' },
-];
 
 export default function SignIn() {
   const navigate = useNavigate();

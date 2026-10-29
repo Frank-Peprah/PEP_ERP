@@ -131,6 +131,33 @@ function planTransition(action, j, actor, entity) {
   return t.to;
 }
 
+// apps/api/src/lib/rate-limit.ts
+function createLimiter(opts) {
+  const buckets = /* @__PURE__ */ new Map();
+  let lastSweep = Date.now();
+  const clientIp = (req) => String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.ip;
+  return async function limit(req) {
+    if (req.method === "OPTIONS" || req.url === "/api/health") return;
+    const now = Date.now();
+    if (now - lastSweep > 6e4) {
+      for (const [k, b2] of buckets) if (b2.resetAt <= now) buckets.delete(k);
+      lastSweep = now;
+    }
+    const strict = opts.isStrict(req.url.split("?")[0], req.method);
+    const key = `${strict ? "s" : "g"}:${clientIp(req)}`;
+    const max = strict ? opts.strictPerMin : opts.globalPerMin;
+    const b = buckets.get(key);
+    if (!b || b.resetAt <= now) {
+      buckets.set(key, { count: 1, resetAt: now + 6e4 });
+      return;
+    }
+    b.count++;
+    if (b.count > max) {
+      throw new DomainError("RATE_LIMITED", `Too many requests. Try again in ${Math.ceil((b.resetAt - now) / 1e3)} seconds.`);
+    }
+  };
+}
+
 // apps/api/src/lib/db.ts
 import pg from "npm:pg@8.23.1";
 pg.types.setTypeParser(1700, (v) => v);
@@ -218,7 +245,9 @@ var CONFIG_KEYS = [
   // and whether finance access requires a two-step-verified session (default: required).
   "SUPABASE_URL",
   "SUPABASE_JWT_SECRET",
-  "REQUIRE_MFA"
+  "REQUIRE_MFA",
+  // Where invitation e-mails send people (the web app URL; must be in Supabase Auth's redirect allow-list).
+  "INVITE_REDIRECT_URL"
 ];
 var fromDb = {};
 function getConfig(key) {
@@ -303,8 +332,11 @@ async function authenticateBearer(db, token, opts) {
   if (!token) throw new DomainError("UNAUTHENTICATED", "Missing bearer token");
   if (isJwt(token)) {
     const claims = await verifySupabaseJwt(token);
-    const r = await db.query("SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active", [claims.sub]);
-    if (!r.rowCount) throw new DomainError("UNAUTHENTICATED", "This sign-in is not linked to an active PEP user");
+    let r = await db.query("SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active", [claims.sub]);
+    if (!r.rowCount && typeof claims.email === "string" && claims.sub && await claimInvitation(db, claims.sub, claims.email)) {
+      r = await db.query("SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active", [claims.sub]);
+    }
+    if (!r.rowCount) throw new DomainError("UNAUTHENTICATED", "This sign-in is not linked to an active PEP user. Ask an administrator for an invitation.");
     return { id: r.rows[0].id, email: r.rows[0].email, fullName: r.rows[0].full_name, method: "supabase", mfa: claims.aal === "aal2" };
   }
   if (!opts.allowDev || process.env.NODE_ENV === "production") throw new DomainError("UNAUTHENTICATED", "Unsupported token");
@@ -338,6 +370,29 @@ async function loadScope(db, userId, entityId) {
 }
 function requirePerm(scope, permission) {
   if (!scope.permissions.has(permission)) throw new DomainError("FORBIDDEN", `Missing permission ${permission}`);
+}
+async function claimInvitation(db, authUserId, email) {
+  return withTx(db, async (tx) => {
+    const r = await tx.query(
+      `SELECT u.id FROM users u
+        WHERE u.email = $1 AND u.is_active AND u.auth_user_id IS NULL
+          AND EXISTS (SELECT 1 FROM user_invitations i WHERE i.user_id = u.id AND i.status = 'sent')
+        FOR UPDATE`,
+      [email.toLowerCase()]
+    );
+    if (!r.rowCount) return null;
+    const userId = r.rows[0].id;
+    await tx.query("UPDATE users SET auth_user_id = $1 WHERE id = $2", [authUserId, userId]);
+    const inv = await tx.query(
+      `UPDATE user_invitations SET status = 'accepted', accepted_at = now(), auth_user_id = $2
+        WHERE user_id = $1 AND status = 'sent' RETURNING entity_id`,
+      [userId, authUserId]
+    );
+    for (const row of inv.rows) {
+      await audit(tx, { entityId: row.entity_id, actorId: userId, action: "user.invitation_accepted", objectType: "user", objectId: userId });
+    }
+    return userId;
+  });
 }
 
 // apps/api/src/services/journals.ts
@@ -1752,6 +1807,180 @@ async function transitionRun(db, scope, actor, id, action, opts = {}) {
   });
 }
 
+// apps/api/src/lib/supabase-admin.ts
+function serviceKey() {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const raw = process.env.SUPABASE_SECRET_KEYS;
+  if (!raw) return void 0;
+  try {
+    const keys = JSON.parse(raw);
+    return keys.default ?? Object.values(keys)[0];
+  } catch {
+    return void 0;
+  }
+}
+var canInvite = () => !!(getConfig("SUPABASE_URL") && serviceKey());
+async function sendInvite(email, data) {
+  const base = getConfig("SUPABASE_URL")?.replace(/\/$/, "");
+  const key = serviceKey();
+  if (!base || !key) return { authUserId: null, emailSent: false, alreadyRegistered: false };
+  const redirect = getConfig("INVITE_REDIRECT_URL");
+  const url = `${base}/auth/v1/invite${redirect ? `?redirect_to=${encodeURIComponent(redirect)}` : ""}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", apikey: key, authorization: `Bearer ${key}` },
+      body: JSON.stringify({ email, data })
+    });
+  } catch {
+    throw new DomainError("AUTH_PROVIDER_UNAVAILABLE", "Could not reach the sign-in service to send the invitation. Try again shortly.");
+  }
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) return { authUserId: body.id ?? null, emailSent: true, alreadyRegistered: false };
+  const code = String(body.error_code ?? body.code ?? "");
+  if (res.status === 422 && /email_exists|user_already_exists|already/i.test(`${code} ${body.msg ?? body.message ?? ""}`)) {
+    return { authUserId: null, emailSent: false, alreadyRegistered: true };
+  }
+  if (res.status === 429) throw new DomainError("RATE_LIMITED", "The sign-in service is rate-limiting invitation e-mails. Try again in a few minutes.");
+  throw new DomainError("INVITE_FAILED", `The sign-in service refused the invitation (${res.status}).`);
+}
+
+// apps/api/src/services/users.ts
+var EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+async function listUsers(db, scope) {
+  if (!scope.permissions.has("users.manage") && !scope.permissions.has("users.read")) requirePerm(scope, "users.manage");
+  const r = await db.query(
+    `SELECT u.id, u.email, u.full_name, u.is_active, (u.auth_user_id IS NOT NULL) AS can_sign_in,
+            array_agg(DISTINCT uer.role_code ORDER BY uer.role_code) AS roles,
+            (SELECT json_build_object('status', i.status, 'sent_at', i.sent_at, 'accepted_at', i.accepted_at)
+               FROM user_invitations i WHERE i.user_id = u.id AND i.entity_id = $1 ORDER BY i.sent_at DESC LIMIT 1) AS invitation
+       FROM user_entity_roles uer JOIN users u ON u.id = uer.user_id
+      WHERE uer.entity_id = $1
+      GROUP BY u.id ORDER BY u.full_name`,
+    [scope.entityId]
+  );
+  return { users: r.rows, canSendInvites: canInvite() };
+}
+async function listRoles(db) {
+  const r = await db.query(
+    `SELECT r.code, r.name, r.description, array_agg(rp.permission ORDER BY rp.permission) AS permissions
+       FROM roles r LEFT JOIN role_permissions rp ON rp.role_code = r.code GROUP BY r.code ORDER BY r.name`
+  );
+  return r.rows;
+}
+async function inviteUser(db, scope, actor, input) {
+  requirePerm(scope, "users.manage");
+  const email = String(input.email ?? "").trim().toLowerCase();
+  const fullName = String(input.fullName ?? "").trim();
+  const roles = [...new Set((input.roles ?? []).map(String))];
+  if (!EMAIL.test(email)) throw new DomainError("INVALID_EMAIL", "Enter a valid e-mail address");
+  if (fullName.length < 2) throw new DomainError("INVALID_NAME", "Enter the person\u2019s full name");
+  if (!roles.length) throw new DomainError("ROLES_REQUIRED", "Choose at least one role");
+  if (email === actor.email.toLowerCase()) {
+    throw new DomainError("SEGREGATION_OF_DUTIES", "You cannot invite yourself or change your own roles; ask another administrator");
+  }
+  const out = await withTx(db, async (tx) => {
+    const known = await tx.query("SELECT code FROM roles WHERE code = ANY($1::text[])", [roles]);
+    if (known.rowCount !== roles.length) throw new DomainError("UNKNOWN_ROLE", "One or more roles do not exist");
+    const existing = await tx.query("SELECT id, auth_user_id, is_active FROM users WHERE email = $1 FOR UPDATE", [email]);
+    let userId;
+    let linked = false;
+    if (existing.rowCount) {
+      if (!existing.rows[0].is_active) throw new DomainError("USER_INACTIVE", "This user is deactivated; reactivate them first");
+      userId = existing.rows[0].id;
+      linked = existing.rows[0].auth_user_id !== null;
+    } else {
+      userId = (await tx.query("INSERT INTO users (email, full_name) VALUES ($1, $2) RETURNING id", [email, fullName])).rows[0].id;
+    }
+    if (userId === actor.id) throw new DomainError("SEGREGATION_OF_DUTIES", "You cannot change your own roles");
+    const added = [];
+    for (const role of roles) {
+      const ins = await tx.query(
+        `INSERT INTO user_entity_roles (user_id, entity_id, role_code, granted_by) VALUES ($1,$2,$3,$4)
+         ON CONFLICT DO NOTHING RETURNING role_code`,
+        [userId, scope.entityId, role, actor.id]
+      );
+      if (ins.rowCount) added.push(role);
+    }
+    const inv = await tx.query(
+      `INSERT INTO user_invitations (entity_id, user_id, email, roles, invited_by, status, accepted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [scope.entityId, userId, email, roles, actor.id, linked ? "accepted" : "sent", linked ? /* @__PURE__ */ new Date() : null]
+    );
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: "user.invite",
+      objectType: "user",
+      objectId: userId,
+      after: { email, roles, rolesAdded: added, invitationId: inv.rows[0].id, alreadyLinked: linked }
+    });
+    return { userId, invitationId: inv.rows[0].id, linked, added };
+  });
+  if (out.linked) return { ...out, status: "roles_updated", emailSent: false };
+  const sent = await sendInvite(email, { pep_user_id: out.userId });
+  if (sent.authUserId) {
+    await withTx(db, async (tx) => {
+      await tx.query("UPDATE users SET auth_user_id = $1 WHERE id = $2 AND auth_user_id IS NULL", [sent.authUserId, out.userId]);
+      await tx.query("UPDATE user_invitations SET auth_user_id = $1 WHERE id = $2", [sent.authUserId, out.invitationId]);
+    });
+  }
+  return {
+    ...out,
+    status: sent.emailSent ? "invitation_sent" : sent.alreadyRegistered ? "link_on_next_sign_in" : "created_without_email",
+    emailSent: sent.emailSent
+  };
+}
+var DOC_TYPES = ["journal", "bill", "payment", "payout_detail_change", "refund", "role_change", "contract"];
+async function listPolicies(db, scope) {
+  requirePerm(scope, "policies.read");
+  const r = await db.query(
+    `SELECT p.*, u.full_name AS created_by_name FROM approval_policies p JOIN users u ON u.id = p.created_by
+      WHERE p.entity_id = $1 ORDER BY p.document_type, p.effective_from DESC, p.threshold`,
+    [scope.entityId]
+  );
+  return r.rows;
+}
+async function createPolicy(db, scope, actor, input) {
+  requirePerm(scope, "policies.manage");
+  if (!DOC_TYPES.includes(String(input.documentType))) throw new DomainError("INVALID_DOCUMENT_TYPE", `Document type must be one of: ${DOC_TYPES.join(", ")}`);
+  let threshold;
+  try {
+    threshold = new Decimal(String(input.threshold ?? "")).toFixed(2);
+  } catch {
+    throw new DomainError("INVALID_AMOUNT", "Threshold must be an amount");
+  }
+  if (new Decimal(threshold).isNegative()) throw new DomainError("INVALID_AMOUNT", "Threshold cannot be negative");
+  const n = Number(input.approvalsRequired);
+  if (!Number.isInteger(n) || n < 1 || n > 3) throw new DomainError("INVALID_APPROVALS", "Approvals required must be 1, 2 or 3");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.effectiveFrom ?? ""))) throw new DomainError("INVALID_DATE", "Effective date must be YYYY-MM-DD");
+  const reason = input.reason?.trim();
+  if (!reason) throw new DomainError("REASON_REQUIRED", "Give a reason for the policy");
+  return withTx(db, async (tx) => {
+    const r = await tx.query(
+      `INSERT INTO approval_policies (entity_id, document_type, threshold, approvals_required, effective_from, reason, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [scope.entityId, input.documentType, threshold, n, input.effectiveFrom, reason, actor.id]
+    );
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: "policy.create",
+      objectType: "approval_policy",
+      objectId: r.rows[0].id,
+      after: r.rows[0],
+      reason
+    });
+    return r.rows[0];
+  });
+}
+async function approvalsRequired(db, scope, documentType, amount, on) {
+  requirePerm(scope, "policies.read");
+  const r = await db.query("SELECT approvals_required($1,$2,$3::numeric,$4::date) AS n", [scope.entityId, documentType, amount, on]);
+  return { documentType, amount, on, approvalsRequired: Number(r.rows[0].n) };
+}
+
 // apps/api/src/services/dashboard.ts
 var D3 = (v) => new Decimal(v ?? 0);
 var s22 = (d) => d.toFixed(2);
@@ -1885,6 +2114,11 @@ var STATUS = {
   AUTH_NOT_CONFIGURED: 503,
   UNAUTHENTICATED: 401,
   MFA_REQUIRED: 403,
+  AUTH_PROVIDER_UNAVAILABLE: 502,
+  INVITE_FAILED: 502,
+  RATE_LIMITED: 429,
+  USER_INACTIVE: 409,
+  APPROVAL_POLICY_APPEND_ONLY: 409,
   ACCESS_CODE_REQUIRED: 401,
   FORBIDDEN: 403,
   SEGREGATION_OF_DUTIES: 403,
@@ -1937,6 +2171,12 @@ function buildApp(db, opts = {}) {
     allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-access-code"],
     maxAge: 600
   });
+  const STRICT = [/^\/api\/auth\//, /^\/api\/dev\//, /\/users\/invite$/];
+  app2.addHook("onRequest", createLimiter({
+    globalPerMin: Number(process.env.RATE_LIMIT_PER_MIN ?? 600),
+    strictPerMin: Number(process.env.RATE_LIMIT_AUTH_PER_MIN ?? 20),
+    isStrict: (url) => STRICT.some((re) => re.test(url))
+  }));
   app2.setErrorHandler((err, _req, reply) => {
     const e = translatePgError(err);
     if (e instanceof DomainError) {
@@ -2053,6 +2293,21 @@ function buildApp(db, opts = {}) {
   for (const action of ["submit", "approve", "finalize", "return", "reject"]) {
     app2.post(`${E}/statement-runs/:id/${action}`, { preHandler: scoped }, async (req) => transitionRun(db, req.scope, req.actor, req.params.id, action, { reason: req.body?.reason }));
   }
+  app2.get("/api/roles", { preHandler: authenticate }, async () => listRoles(db));
+  app2.get(`${E}/users`, { preHandler: scoped }, async (req) => listUsers(db, req.scope));
+  app2.post(`${E}/users/invite`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return inviteUser(db, req.scope, req.actor, req.body);
+  });
+  app2.get(`${E}/approval-policies`, { preHandler: scoped }, async (req) => listPolicies(db, req.scope));
+  app2.post(`${E}/approval-policies`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return createPolicy(db, req.scope, req.actor, req.body);
+  });
+  app2.get(`${E}/approval-policies/required`, { preHandler: scoped }, async (req) => {
+    const q = req.query;
+    return approvalsRequired(db, req.scope, String(q.documentType), String(q.amount ?? "0"), String(q.on ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)));
+  });
   app2.get(`${E}/audit`, { preHandler: scoped }, async (req) => listAudit(db, req.scope, Number(req.query.limit ?? 200)));
   return app2;
 }

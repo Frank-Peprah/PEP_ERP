@@ -172,3 +172,17 @@ describe('Database-level controls (application bypassed)', () => {
     expect(r.json().error.code).toBe('OVERLAP');
   });
 });
+
+describe('Rate limiting (SECURITY.md blocker 4)', () => {
+  it('sign-in attempts are limited per client IP; other clients are unaffected', async () => {
+    const attempt = (ip: string) => c.app.inject({ method: 'POST', url: '/api/auth/dev-login',
+      headers: { 'x-forwarded-for': `${ip}, 10.0.0.1` }, payload: { email: 'nobody@example.com' } });
+    const codes: number[] = [];
+    for (let i = 0; i < 25; i++) codes.push((await attempt('203.0.113.7')).statusCode);
+    expect(codes.slice(0, 20).every((s) => s === 401)).toBe(true);
+    const limited = await attempt('203.0.113.7');
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe('RATE_LIMITED');
+    expect((await attempt('198.51.100.9')).statusCode).toBe(401);   // a different client still gets through
+  });
+});

@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, NotebookPen, BookOpenText, Scale, ListTree, CalendarCheck2, FileSpreadsheet, FileText,
-  BarChart3, HandCoins, Receipt, Landmark, Building2, Boxes, Percent, ShieldCheck, Sparkles, Settings, type LucideIcon,
+  BarChart3, HandCoins, Receipt, Landmark, Building2, Boxes, Percent, ShieldCheck, Sparkles, Settings, Users, Scale as ScaleIcon, type LucideIcon,
 } from 'lucide-react';
 
 /** One navigation model drives the sidebar, the phone menu, the command palette and breadcrumbs. */
@@ -40,6 +40,8 @@ export const NAV: NavGroup[] = [
     { id: 'ai', label: 'AI Controller', icon: Sparkles, path: 'ai', phase: 5 },
   ] },
   { group: 'Administration', items: [
+    { id: 'users', label: 'Users & Access', icon: Users, path: 'users', perm: 'users.read', keywords: 'invite roles people team mfa' },
+    { id: 'policies', label: 'Approval Policies', icon: ScaleIcon, path: 'approval-policies', perm: 'policies.read', keywords: 'threshold dual control limits' },
     { id: 'settings', label: 'Settings', icon: Settings, path: 'settings', phase: 2 },
   ] },
 ];

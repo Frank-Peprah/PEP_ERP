@@ -74,7 +74,7 @@ CREATE INDEX user_invitations_entity ON user_invitations (entity_id, sent_at DES
 INSERT INTO role_permissions (role_code, permission) VALUES
   ('controller', 'policies.manage'), ('controller', 'policies.read'),
   ('finance_admin', 'policies.read'), ('approver', 'policies.read'), ('auditor', 'policies.read'),
-  ('auditor', 'users.read'), ('controller', 'users.read');
+  ('auditor', 'users.read'), ('controller', 'users.read'), ('system_admin', 'users.read');
 -- system_admin already holds users.manage (invite, assign roles) and has no financial authority.
 
 -- ── Privileges and RLS (same pattern as 005) ──────────────────────────────────

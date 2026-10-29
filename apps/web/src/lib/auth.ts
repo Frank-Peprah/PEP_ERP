@@ -93,3 +93,52 @@ export async function sendPasswordReset(email: string) {
   const { error } = await c.resetPasswordForEmail(email.trim().toLowerCase());
   if (error) throw error;
 }
+
+// ── Invitation / recovery links ───────────────────────────────────────────────
+// Supabase sends invited people (and password resets) back to the app with the session in the URL
+// fragment: #access_token=…&refresh_token=…&type=invite|recovery, or #error=…&error_description=….
+// We capture it before the router starts (the router also uses the fragment on GitHub Pages),
+// strip it from the address bar and history, and open the set-password screen.
+const PENDING = 'pep.pendingLink';
+export type PendingLink = { type: string; access_token?: string; refresh_token?: string; error?: string };
+
+export function captureAuthLink(): boolean {
+  const h = location.hash.replace(/^#\/?/, '');
+  if (!/(^|&)(access_token|error)=/.test(h)) return false;
+  const p = new URLSearchParams(h);
+  const link: PendingLink = {
+    type: p.get('type') ?? 'invite',
+    access_token: p.get('access_token') ?? undefined,
+    refresh_token: p.get('refresh_token') ?? undefined,
+    error: p.get('error_description') ?? p.get('error') ?? undefined,
+  };
+  try { sessionStorage.setItem(PENDING, JSON.stringify(link)); } catch { return false; }
+  const hashRouter = ((import.meta as any).env?.VITE_ROUTER ?? '') === 'hash';
+  const base = ((import.meta as any).env?.BASE_URL ?? '/') as string;
+  history.replaceState(null, '', hashRouter ? `${location.pathname}${location.search}#/set-password`
+    : `${base.startsWith('.') ? location.pathname.replace(/[^/]*$/, '') : base}set-password`);
+  return true;
+}
+
+export function takePendingLink(): PendingLink | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING);
+    sessionStorage.removeItem(PENDING);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+/** Start the session carried by an invitation/recovery link. */
+export async function startLinkSession(link: PendingLink) {
+  if (link.error) throw new Error(/expired|invalid/i.test(link.error) ? 'This link has expired or was already used. Ask your administrator for a new invitation, or use "Forgot password?".' : link.error);
+  if (!link.access_token || !link.refresh_token) throw new Error('This link is incomplete. Open it again from the e-mail.');
+  const c = await authClient();
+  const { error } = await c.setSession({ access_token: link.access_token, refresh_token: link.refresh_token });
+  if (error) throw new Error('This link has expired or was already used. Ask your administrator for a new invitation.');
+}
+
+export async function setPassword(password: string) {
+  const c = await authClient();
+  const { error } = await c.updateUser({ password });
+  if (error) throw new Error(error.message);
+}

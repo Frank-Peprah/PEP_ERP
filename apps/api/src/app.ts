@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
+import { createLimiter } from './lib/rate-limit.js';
 import { DomainError } from '@pep/accounting-domain';
 import { translatePgError, type Db } from './lib/db.js';
 import { getConfig, loadConfigFromDb } from './lib/config.js';
@@ -49,6 +50,14 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
     allowedHeaders: ['authorization', 'content-type', 'idempotency-key', 'x-access-code'],
     maxAge: 600,
   });
+
+  // Rate limiting (SECURITY.md blocker 4): generous globally, strict on sign-in and invitations.
+  const STRICT = [/^\/api\/auth\//, /^\/api\/dev\//, /\/users\/invite$/];
+  app.addHook('onRequest', createLimiter({
+    globalPerMin: Number(process.env.RATE_LIMIT_PER_MIN ?? 600),
+    strictPerMin: Number(process.env.RATE_LIMIT_AUTH_PER_MIN ?? 20),
+    isStrict: (url) => STRICT.some((re) => re.test(url)),
+  }));
 
   app.setErrorHandler((err, _req, reply) => {
     const e = translatePgError(err);
