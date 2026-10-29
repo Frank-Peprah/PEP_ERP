@@ -108,8 +108,10 @@ for (const [vp, size] of Object.entries(VIEWPORTS)) {
   await check(`[${vp}] expired invitation link lands on a clear message, not a blank page`, async () => {
     const { page, ctx } = await pageAs(null, size);
     await page.goto(`${BASE}/sign-in#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`);
-    await page.waitForURL(/set-password/);
-    await page.getByText(/Open the link from your invitation|expired/).waitFor();
+    // The app rewrites the address with history.replaceState (no navigation event), so wait for the
+    // screen itself and then assert the address, instead of waitForURL.
+    await page.getByText(/Open the link from your invitation|expired/).waitFor({ timeout: 15000 });
+    assert(/\/set-password/.test(page.url()), `address is ${page.url()}`);
     assert(!page.url().includes('error_description'), 'link details left in the address bar');
     await axe(page, 'set-password');
     await ctx.close();

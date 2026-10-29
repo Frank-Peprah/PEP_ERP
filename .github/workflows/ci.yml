@@ -45,7 +45,7 @@ jobs:
       - name: Typecheck (API, domain, tests)
         run: npm run typecheck
       - name: Unit, integration, database-invariant and security tests (run as pep_app)
-        run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml
+        run: npx vitest run --reporter=default --reporter=github-actions --reporter=junit --outputFile.junit=reports/junit.xml
       - name: Build web app (typecheck + Vite) and enforce bundle budgets
         run: npm run build:web && ./scripts/check-budgets.sh apps/web/dist
       - name: Browser journeys with accessibility checks (axe)
@@ -55,8 +55,15 @@ jobs:
           mkdir -p reports
           (npx tsx apps/api/src/server.ts > reports/api.log 2>&1 &)
           for i in $(seq 1 30); do curl -sf localhost:4000/api/health && break; sleep 1; done
-          E2E_BASE=http://localhost:4000 node tests/e2e/phase0.e2e.mjs
-          E2E_BASE=http://localhost:4000 node tests/e2e/platform.e2e.mjs
+          # Failures are also published as annotations (readable with `gh run view`).
+          run_journeys() {
+            E2E_BASE=http://localhost:4000 node "$1" | tee "reports/$(basename "$1" .mjs).txt"
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then grep -A1 'FAIL' "reports/$(basename "$1" .mjs).txt" | sed 's/^/::error title=Browser journey::/'; fi
+            return "$status"
+          }
+          run_journeys tests/e2e/phase0.e2e.mjs
+          run_journeys tests/e2e/platform.e2e.mjs
         env:
           PORT: '4000'
           PEP_DB_ROLE: pep_app   # same least-privilege role as production
