@@ -5,7 +5,7 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';
-import type { Db } from './db.js';
+import { audit, withTx, type Db } from './db.js';
 import { DomainError } from '@pep/accounting-domain';
 import { getConfig } from './config.js';
 
@@ -83,8 +83,12 @@ export async function authenticateBearer(db: Db, token: string | undefined, opts
   if (!token) throw new DomainError('UNAUTHENTICATED', 'Missing bearer token');
   if (isJwt(token)) {
     const claims = await verifySupabaseJwt(token);
-    const r = await db.query('SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active', [claims.sub]);
-    if (!r.rowCount) throw new DomainError('UNAUTHENTICATED', 'This sign-in is not linked to an active PEP user');
+    let r = await db.query('SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active', [claims.sub]);
+    // First sign-in after an invitation: link to the PEP user invited at this (provider-verified) e-mail.
+    if (!r.rowCount && typeof claims.email === 'string' && claims.sub && await claimInvitation(db, claims.sub, claims.email)) {
+      r = await db.query('SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active', [claims.sub]);
+    }
+    if (!r.rowCount) throw new DomainError('UNAUTHENTICATED', 'This sign-in is not linked to an active PEP user. Ask an administrator for an invitation.');
     return { id: r.rows[0].id, email: r.rows[0].email, fullName: r.rows[0].full_name, method: 'supabase', mfa: claims.aal === 'aal2' };
   }
   if (!opts.allowDev || process.env.NODE_ENV === 'production') throw new DomainError('UNAUTHENTICATED', 'Unsupported token');
@@ -127,3 +131,25 @@ export async function loadScope(db: Db, userId: string, entityId: string): Promi
 export function requirePerm(scope: EntityScope, permission: string) {
   if (!scope.permissions.has(permission)) throw new DomainError('FORBIDDEN', `Missing permission ${permission}`);
 }
+
+/** Called on first sign-in by a Supabase user who is not yet linked: claim an open invitation for their verified e-mail. */
+export async function claimInvitation(db: Db, authUserId: string, email: string): Promise<string | null> {
+  return withTx(db, async (tx) => {
+    const r = await tx.query(
+      `SELECT u.id FROM users u
+        WHERE u.email = $1 AND u.is_active AND u.auth_user_id IS NULL
+          AND EXISTS (SELECT 1 FROM user_invitations i WHERE i.user_id = u.id AND i.status = 'sent')
+        FOR UPDATE`, [email.toLowerCase()]);
+    if (!r.rowCount) return null;
+    const userId = r.rows[0].id as string;
+    await tx.query('UPDATE users SET auth_user_id = $1 WHERE id = $2', [authUserId, userId]);
+    const inv = await tx.query(
+      `UPDATE user_invitations SET status = 'accepted', accepted_at = now(), auth_user_id = $2
+        WHERE user_id = $1 AND status = 'sent' RETURNING entity_id`, [userId, authUserId]);
+    for (const row of inv.rows) {
+      await audit(tx, { entityId: row.entity_id, actorId: userId, action: 'user.invitation_accepted', objectType: 'user', objectId: userId });
+    }
+    return userId;
+  });
+}
+

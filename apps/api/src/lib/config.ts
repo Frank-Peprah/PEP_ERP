@@ -9,6 +9,8 @@ export const CONFIG_KEYS = [
   // Supabase Auth (Blueprint Phase 0): project URL (JWKS discovery), optional legacy HS256 secret,
   // and whether finance access requires a two-step-verified session (default: required).
   'SUPABASE_URL', 'SUPABASE_JWT_SECRET', 'REQUIRE_MFA',
+  // Where invitation e-mails send people (the web app URL; must be in Supabase Auth's redirect allow-list).
+  'INVITE_REDIRECT_URL',
 ] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 

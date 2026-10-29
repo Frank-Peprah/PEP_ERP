@@ -9,10 +9,12 @@ import * as J from './services/journals.js';
 import * as S from './services/setup.js';
 import * as R from './services/reports.js';
 import * as FS from './services/statements.js';
+import * as U from './services/users.js';
 import { dashboard } from './services/dashboard.js';
 
 const STATUS: Record<string, number> = {
-  AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, MFA_REQUIRED: 403, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
+  AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, MFA_REQUIRED: 403, AUTH_PROVIDER_UNAVAILABLE: 502, INVITE_FAILED: 502,
+  RATE_LIMITED: 429, USER_INACTIVE: 409, APPROVAL_POLICY_APPEND_ONLY: 409, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
   CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409,
   ACCOUNT_HAS_ACTIVITY: 409, REFERENCED: 409, POSTED_JOURNAL_IMMUTABLE: 409, JOURNAL_LINES_IMMUTABLE: 409,
   PERIOD_LOCKED: 423, PERIODS_NOT_LOCKED: 423, STATEMENT_STALE: 409, STATEMENT_HAS_BLOCKING_EXCEPTIONS: 422,
@@ -184,6 +186,22 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
     app.post(`${E}/statement-runs/:id/${action}`, { preHandler: scoped }, async (req) =>
       FS.transitionRun(db, req.scope!, req.actor!, (req.params as P).id, action, { reason: (req.body as any)?.reason }));
   }
+  // ── Users, invitations, approval policies (Blueprint Phase 0 · M0) ──
+  app.get('/api/roles', { preHandler: authenticate }, async () => U.listRoles(db));
+  app.get(`${E}/users`, { preHandler: scoped }, async (req) => U.listUsers(db, req.scope!));
+  app.post(`${E}/users/invite`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return U.inviteUser(db, req.scope!, req.actor!, req.body as any);
+  });
+  app.get(`${E}/approval-policies`, { preHandler: scoped }, async (req) => U.listPolicies(db, req.scope!));
+  app.post(`${E}/approval-policies`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return U.createPolicy(db, req.scope!, req.actor!, req.body as any);
+  });
+  app.get(`${E}/approval-policies/required`, { preHandler: scoped }, async (req) => {
+    const q = req.query as { documentType?: string; amount?: string; on?: string };
+    return U.approvalsRequired(db, req.scope!, String(q.documentType), String(q.amount ?? '0'), String(q.on ?? new Date().toISOString().slice(0, 10)));
+  });
   app.get(`${E}/audit`, { preHandler: scoped }, async (req) => S.listAudit(db, req.scope!, Number((req.query as any).limit ?? 200)));
 
   return app;
