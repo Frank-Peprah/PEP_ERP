@@ -9,7 +9,11 @@ process.env.AUTH_SECRET ??= 'test-secret-test-secret-test-secret-123';
 
 export async function setup() {
   await migrate(TEST_URL, { reset: true, quiet: true });
-  const db = createPool(TEST_URL);
+  // Run the whole suite as the least-privilege API role (migration 005), as production does.
+  const db = createPool(TEST_URL, { role: process.env.PEP_DB_ROLE ?? 'pep_app' });
+  // Owner-level connection: platform configuration (app_config) and tamper tests that prove the
+  // database refuses changes even from a privileged role, not just from the API role.
+  const adminDb = createPool(TEST_URL, { max: 2 });
   const base = await seedBase(db);
   const app = buildApp(db, { allowDevLogin: true });
   await app.ready();
@@ -23,7 +27,7 @@ export async function setup() {
     (await db.query('SELECT id FROM accounts WHERE entity_id = $1 AND code = $2', [entityId, code])).rows[0].id as string;
   const call = (user: string, method: string, url: string, payload?: unknown, headers: Record<string, string> = {}) =>
     app.inject({ method: method as any, url, payload: payload as any, headers: { authorization: `Bearer ${tokens[user]}`, ...headers } });
-  return { db, app, base, T, L, acct, call, tokens, teardown: async () => { await app.close(); await db.end(); } };
+  return { db, adminDb, app, base, T, L, acct, call, tokens, teardown: async () => { await app.close(); await db.end(); await adminDb.end(); } };
 }
 export type Ctx = Awaited<ReturnType<typeof setup>>;
 

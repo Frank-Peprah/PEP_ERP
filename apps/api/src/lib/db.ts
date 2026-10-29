@@ -9,8 +9,19 @@ pg.types.setTypeParser(20, (v) => v); // bigint as string
 export type Db = pg.Pool;
 export type Tx = pg.PoolClient;
 
-export function createPool(connectionString: string, opts: { max?: number } = {}): Db {
-  return new pg.Pool({ connectionString, max: opts.max ?? 10, idleTimeoutMillis: 10_000 });
+/**
+ * opts.role: when set (e.g. 'pep_app'), every pooled connection runs `SET ROLE <role>` before use.
+ * Production connects with a dedicated LOGIN role instead; SET ROLE is how local tests and
+ * owner-credential environments exercise the same least-privilege role (migration 005).
+ */
+export function createPool(connectionString: string, opts: { max?: number; role?: string } = {}): Db {
+  const pool = new pg.Pool({ connectionString, max: opts.max ?? 10, idleTimeoutMillis: 10_000 });
+  const role = opts.role ?? process.env.PEP_DB_ROLE;
+  if (role) {
+    if (!/^[a-z_][a-z0-9_]{0,62}$/.test(role)) throw new Error('Invalid PEP_DB_ROLE');
+    pool.on('connect', (client) => { client.query(`SET ROLE ${role}`).catch(() => {}); });
+  }
+  return pool;
 }
 
 /** Run fn in a SERIALIZABLE-safe transaction (READ COMMITTED + explicit row locks). */

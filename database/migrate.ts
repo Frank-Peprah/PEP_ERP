@@ -20,7 +20,7 @@ export async function migrate(databaseUrl: string, opts: { reset?: boolean; quie
   try {
     if (opts.reset) {
       if (process.env.NODE_ENV === 'production') throw new Error('Refusing --reset in production');
-      await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+      await client.query('DROP SCHEMA IF EXISTS private CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
     }
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       filename text PRIMARY KEY, sha256 text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);

@@ -142,10 +142,10 @@ describe('Workflow, segregation of duties and immutability', () => {
     const row = (await c.db.query('SELECT pack::text AS p, content_hash FROM financial_statement_runs WHERE id = $1', [finalId])).rows[0];
     expect(row.content_hash).toBe(createHash('sha256').update(row.p).digest('hex'));
     expect(run.content_hash).toBe(row.content_hash);
-    await expect(c.db.query(`UPDATE financial_statement_runs SET pack = '{}'::jsonb WHERE id = $1`, [finalId])).rejects.toThrow(/IMMUTABLE/);
-    await expect(c.db.query(`UPDATE financial_statement_runs SET status = 'draft' WHERE id = $1`, [finalId])).rejects.toThrow(/IMMUTABLE/);
-    await expect(c.db.query(`DELETE FROM financial_statement_runs WHERE id = $1`, [finalId])).rejects.toThrow(/DELETE_FORBIDDEN/);
-    await expect(c.db.query(`UPDATE report_templates SET definition = '{}'::jsonb`)).rejects.toThrow(/TEMPLATE_IMMUTABLE/);
+    await expect(c.adminDb.query(`UPDATE financial_statement_runs SET pack = '{}'::jsonb WHERE id = $1`, [finalId])).rejects.toThrow(/IMMUTABLE/);
+    await expect(c.adminDb.query(`UPDATE financial_statement_runs SET status = 'draft' WHERE id = $1`, [finalId])).rejects.toThrow(/IMMUTABLE/);
+    await expect(c.adminDb.query(`DELETE FROM financial_statement_runs WHERE id = $1`, [finalId])).rejects.toThrow(/DELETE_FORBIDDEN/);
+    await expect(c.adminDb.query(`UPDATE report_templates SET definition = '{}'::jsonb`)).rejects.toThrow(/TEMPLATE_IMMUTABLE/);
   });
 
   it('a run cannot be inserted already final, nor finalised without an independent approver (DB check)', async () => {

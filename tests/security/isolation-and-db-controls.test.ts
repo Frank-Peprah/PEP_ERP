@@ -63,7 +63,7 @@ describe('Server configuration errors are explicit', () => {
 describe('Secrets from the locked app_config table (hosts without env vars)', () => {
   const saved = { a: process.env.AUTH_SECRET, s: process.env.STAGING_ACCESS_CODE, c: process.env.CORS_ORIGIN };
   afterEach(async () => {
-    await c.db.query('DELETE FROM app_config');
+    await c.adminDb.query('DELETE FROM app_config');
     process.env.AUTH_SECRET = saved.a;
     if (saved.s === undefined) delete process.env.STAGING_ACCESS_CODE; else process.env.STAGING_ACCESS_CODE = saved.s;
     if (saved.c === undefined) delete process.env.CORS_ORIGIN; else process.env.CORS_ORIGIN = saved.c;
@@ -72,7 +72,7 @@ describe('Secrets from the locked app_config table (hosts without env vars)', ()
 
   it('uses AUTH_SECRET and STAGING_ACCESS_CODE from app_config when env vars are absent', async () => {
     delete process.env.AUTH_SECRET; delete process.env.STAGING_ACCESS_CODE;
-    await c.db.query(`INSERT INTO app_config (key, value) VALUES ('AUTH_SECRET', encode(gen_random_bytes(48), 'base64')),
+    await c.adminDb.query(`INSERT INTO app_config (key, value) VALUES ('AUTH_SECRET', encode(gen_random_bytes(48), 'base64')),
                                                          ('STAGING_ACCESS_CODE', 'TEST-CODE-1234')`);
     const app2 = buildApp(c.db, { allowDevLogin: true });
     await app2.ready();
@@ -87,7 +87,7 @@ describe('Secrets from the locked app_config table (hosts without env vars)', ()
   });
 
   it('environment variables take precedence over app_config', async () => {
-    await c.db.query(`INSERT INTO app_config (key, value) VALUES ('STAGING_ACCESS_CODE', 'FROM-DB')`);
+    await c.adminDb.query(`INSERT INTO app_config (key, value) VALUES ('STAGING_ACCESS_CODE', 'FROM-DB')`);
     process.env.STAGING_ACCESS_CODE = 'FROM-ENV';
     const app2 = buildApp(c.db, { allowDevLogin: true });
     await app2.ready();
@@ -98,7 +98,7 @@ describe('Secrets from the locked app_config table (hosts without env vars)', ()
 
   it('CORS allow-list from app_config admits listed origins only', async () => {
     delete process.env.CORS_ORIGIN;
-    await c.db.query(`INSERT INTO app_config (key, value) VALUES ('CORS_ORIGIN', 'https://frank-peprah.github.io, https://erp.example.com')`);
+    await c.adminDb.query(`INSERT INTO app_config (key, value) VALUES ('CORS_ORIGIN', 'https://frank-peprah.github.io, https://erp.example.com')`);
     const app2 = buildApp(c.db, { allowDevLogin: true });
     await app2.ready();
     const pre = (origin: string) => app2.inject({ method: 'OPTIONS', url: '/api/health',
@@ -124,7 +124,7 @@ describe('Cross-origin access (web app on a separate host, e.g. SiteGround)', ()
 
 describe('Database-level controls (application bypassed)', () => {
   const expectDbError = async (sql: string, params: unknown[], code: string) => {
-    await expect(c.db.query(sql, params)).rejects.toThrow(code);
+    await expect(c.adminDb.query(sql, params)).rejects.toThrow(code);
   };
 
   it('#5 UPDATE of a posted journal line is refused by the database', async () => {
@@ -143,8 +143,8 @@ describe('Database-level controls (application bypassed)', () => {
       lines: [{ accountId: bankT, debit: '1000.00' }, { accountId: capT, credit: '999.00' }] });
     const id = j.json().id;
     // walk the status machine by hand, then try to post
-    await c.db.query(`UPDATE journal_entries SET status='submitted' WHERE id=$1`, [id]);
-    await c.db.query(`UPDATE journal_entries SET status='approved', approved_by=$2 WHERE id=$1`, [id, c.base.users.kofi]);
+    await c.adminDb.query(`UPDATE journal_entries SET status='submitted' WHERE id=$1`, [id]);
+    await c.adminDb.query(`UPDATE journal_entries SET status='approved', approved_by=$2 WHERE id=$1`, [id, c.base.users.kofi]);
     await expectDbError(`UPDATE journal_entries SET status='posted', journal_no='HACK-1', posted_by=$2, posted_at=now() WHERE id=$1`,
       [id, c.base.users.kofi], 'JOURNAL_UNBALANCED');
   });
@@ -160,7 +160,7 @@ describe('Database-level controls (application bypassed)', () => {
     await expectDbError('UPDATE audit_events SET action = $1', ['x'], 'AUDIT_LOG_APPEND_ONLY');
     await expectDbError('DELETE FROM audit_events', [], 'AUDIT_LOG_APPEND_ONLY');
     await expectDbError('TRUNCATE audit_events', [], 'AUDIT_LOG_APPEND_ONLY');
-    expect((await c.db.query('SELECT verify_audit_chain() AS b')).rows[0].b).toBeNull();
+    expect((await c.adminDb.query('SELECT verify_audit_chain() AS b')).rows[0].b).toBeNull();
   });
   it('account code/type are frozen once posted activity exists', async () => {
     await expectDbError(`UPDATE accounts SET account_type='expense' WHERE id=$1`, [bankT], 'ACCOUNT_HAS_POSTED_ACTIVITY');
