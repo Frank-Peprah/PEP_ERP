@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0-dev — 2026-10-29 — Blueprint Phase 1 (started): year-end close
+Status: `docs/phases/P1-status.md`. Deployed to staging (pep-api v14, migrations 008–009).
+- **Year-end close** (decision D4, closing journal): system-computed closing journal to retained earnings dated year-end,
+  approved and posted by a second person; finalise locks the year. Database guards: one live close per year, closing
+  journal dated year-end, a year is closed only with a posted unreversed close and every period locked.
+- Blockers in plain words: earlier periods open, prior year open, unposted journals, nothing to close, retained
+  earnings not configured. Re-opening a period of a closed year re-opens the year (audited).
+- Reporting: P&L, dashboard and monthly trend exclude closing journals; trial balance `stage=pre_close|post_close`.
+- Web: **Year-end Close** screen (Accounting) — three steps, closing lines, deep link to the journal.
+- Fixes: expired invitation links always explain themselves; invitation link read once per page load; rate limiter
+  counts API requests only (static files were tripping it in CI).
+
 ## 0.4.0-dev — 2026-10-29 — Blueprint Phase 0 (in progress): identity, least privilege, CI
 Plan of record: `docs/blueprint/` (Build Blueprint v1.0). Status: `docs/phases/P0-status.md`.
 - **Supabase Auth with mandatory two-step verification** (ADR-006): the API verifies Supabase JWTs (JWKS or legacy
