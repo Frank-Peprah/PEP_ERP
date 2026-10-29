@@ -137,7 +137,7 @@ function createLimiter(opts) {
   let lastSweep = Date.now();
   const clientIp = (req) => String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.ip;
   return async function limit(req) {
-    if (req.method === "OPTIONS" || req.url === "/api/health") return;
+    if (req.method === "OPTIONS" || req.url === "/api/health" || !req.url.startsWith("/api/")) return;
     const now = Date.now();
     if (now - lastSweep > 6e4) {
       for (const [k, b2] of buckets) if (b2.resetAt <= now) buckets.delete(k);
@@ -505,7 +505,7 @@ async function listJournals(db, entityId, q) {
   );
   return r.rows;
 }
-async function createDraft(db, scope, actor, input) {
+async function createDraft(db, scope, actor, input, internal) {
   requirePerm(scope, "journal.prepare");
   return withTx(db, async (tx) => {
     const ent = await entityRow(tx, scope.entityId);
@@ -524,8 +524,8 @@ async function createDraft(db, scope, actor, input) {
         return { ...await getJournal(tx, scope.entityId, ex.rows[0].id), idempotentReplay: true };
       }
     }
-    const type = input.journalType ?? "manual";
-    if (!ALLOWED_TYPES.has(type)) throw new DomainError("INVALID_JOURNAL_TYPE", `Journal type ${type} cannot be created manually`);
+    const type = internal?.journalType ?? input.journalType ?? "manual";
+    if (!internal && !ALLOWED_TYPES.has(type)) throw new DomainError("INVALID_JOURNAL_TYPE", `Journal type ${type} cannot be created manually`);
     if (!input.description?.trim()) throw new DomainError("DESCRIPTION_REQUIRED", "Description is required");
     const currency = (input.currency ?? ent.functional_currency).toUpperCase();
     const fxRate = String(input.fxRate ?? 1);
@@ -538,8 +538,8 @@ async function createDraft(db, scope, actor, input) {
     await validateAccounts(tx, scope.entityId, lines.map((l) => l.accountId), input.journalDate);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description,
-                                    currency, fx_rate, prepared_by, idempotency_key, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual') RETURNING id`,
+                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [
         scope.entityId,
         type,
@@ -550,7 +550,9 @@ async function createDraft(db, scope, actor, input) {
         currency,
         fxRate,
         actor.id,
-        input.idempotencyKey ?? null
+        input.idempotencyKey ?? null,
+        internal ? "system" : "manual",
+        internal?.closesFinancialYearId ?? null
       ]
     );
     const id = j.rows[0].id;
@@ -580,6 +582,7 @@ async function updateDraft(db, scope, actor, id, input) {
       throw new DomainError("STALE_VERSION", "Journal was changed by someone else; reload and retry");
     }
     if (j.journal_type === "reversal") throw new DomainError("JOURNAL_NOT_EDITABLE", "Reversal journals cannot be edited; reject and re-create");
+    if (j.journal_type === "year_end_close") throw new DomainError("JOURNAL_NOT_EDITABLE", "Closing journals are computed by the system; reject it and generate the close again");
     const currency = (input.currency ?? j.currency).toUpperCase();
     const fxRate = String(input.fxRate ?? j.fx_rate);
     const period = await periodFor(tx, scope.entityId, input.journalDate);
@@ -853,6 +856,22 @@ async function setPeriodStatus(db, scope, actor, periodId, action, reason) {
     } else {
       if (p.status === "open") throw new DomainError("ALREADY_OPEN", "Period is already open");
       await tx.query(`UPDATE accounting_periods SET status='open', locked_by=NULL, locked_at=NULL WHERE id=$1`, [periodId]);
+      const fy = await tx.query(
+        `UPDATE financial_years SET is_closed = false, closed_at = NULL, closed_by = NULL
+          WHERE id = $1 AND is_closed RETURNING id, label`,
+        [p.financial_year_id]
+      );
+      if (fy.rowCount) {
+        await audit(tx, {
+          entityId: scope.entityId,
+          actorId: actor.id,
+          action: "year.reopen",
+          objectType: "financial_year",
+          objectId: fy.rows[0].id,
+          reason: reason ?? null,
+          after: { label: fy.rows[0].label, reopenedPeriod: p.name }
+        });
+      }
     }
     await audit(tx, {
       entityId: scope.entityId,
@@ -1013,9 +1032,10 @@ async function trialBalance(db, scope, q) {
             count(lp.line_id) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4)::int AS line_count
        FROM accounts a
        LEFT JOIN ledger_postings lp ON lp.account_id = a.id AND lp.journal_date <= $4
+             AND ($5::boolean OR lp.journal_type <> 'year_end_close' OR lp.journal_date < $2)
       WHERE a.entity_id = $1
       GROUP BY a.id ORDER BY a.code`,
-    [scope.entityId, p.fy_start, from, p.end_date]
+    [scope.entityId, p.fy_start, from, p.end_date, (q.stage ?? "post_close") === "post_close"]
   );
   const prior = await db.query(
     `SELECT COALESCE(sum(net),0) AS net FROM ledger_postings
@@ -1109,6 +1129,7 @@ async function trialBalance(db, scope, q) {
       basis,
       from,
       to: p.end_date,
+      stage: q.stage ?? "post_close",
       periodStatus: p.status,
       currency: "functional",
       generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -1165,7 +1186,7 @@ async function accountLedger(db, scope, q) {
   };
 }
 async function summary(db, scope, periodId) {
-  const tb = await trialBalance(db, scope, { periodId, basis: "ytd" });
+  const tb = await trialBalance(db, scope, { periodId, basis: "ytd", stage: "pre_close" });
   const cash = await db.query(
     `SELECT COALESCE(sum(lp.net),0) AS net FROM ledger_postings lp JOIN accounts a ON a.id = lp.account_id
       WHERE lp.entity_id = $1 AND a.cash_flow_class = 'cash' AND lp.journal_date <= $2`,
@@ -1178,7 +1199,7 @@ async function summary(db, scope, periodId) {
     `SELECT to_char(date_trunc('month', journal_date), 'YYYY-MM') AS m,
             COALESCE(-sum(net) FILTER (WHERE account_type='revenue'),0) AS revenue,
             COALESCE(sum(net) FILTER (WHERE account_type='expense'),0) AS expenses
-       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3 GROUP BY 1 ORDER BY 1`,
+       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3 AND journal_type <> 'year_end_close' GROUP BY 1 ORDER BY 1`,
     [scope.entityId, tb.parameters.from, tb.parameters.to]
   );
   const pending = await db.query(
@@ -1220,7 +1241,7 @@ async function loadFacts(db, entityId, fyStart, asOf) {
     `SELECT account_id,
             COALESCE(sum(net) FILTER (WHERE journal_date <= $3), 0)                       AS closing,
             COALESCE(sum(net) FILTER (WHERE journal_date <  $2), 0)                       AS opening,
-            COALESCE(sum(net) FILTER (WHERE journal_date BETWEEN $2 AND $3), 0)           AS movement
+            COALESCE(sum(net) FILTER (WHERE journal_date BETWEEN $2 AND $3 AND journal_type <> 'year_end_close'), 0) AS movement
        FROM ledger_postings WHERE entity_id = $1 AND journal_date <= $3 GROUP BY account_id`,
     [entityId, fyStart, asOf]
   );
@@ -1981,8 +2002,140 @@ async function approvalsRequired(db, scope, documentType, amount, on) {
   return { documentType, amount, on, approvalsRequired: Number(r.rows[0].n) };
 }
 
+// apps/api/src/services/close.ts
+var D3 = (v) => new Decimal(v);
+async function yearOf(db, entityId, fyId) {
+  const r = await db.query("SELECT * FROM financial_years WHERE id = $1 AND entity_id = $2", [fyId, entityId]);
+  if (!r.rowCount) throw new DomainError("NOT_FOUND", "Financial year not found");
+  return r.rows[0];
+}
+async function previewClose(db, scope, fyId) {
+  requirePerm(scope, "reports.read");
+  const fy = await yearOf(db, scope.entityId, fyId);
+  const ent = (await db.query(
+    `SELECT e.retained_earnings_account_id AS re_id, a.code AS re_code, a.name AS re_name
+       FROM entities e LEFT JOIN accounts a ON a.id = e.retained_earnings_account_id WHERE e.id = $1`,
+    [scope.entityId]
+  )).rows[0];
+  const nets = await db.query(
+    `SELECT a.id, a.code, a.name, a.account_type, COALESCE(sum(lp.net), 0) AS net
+       FROM ledger_postings lp JOIN accounts a ON a.id = lp.account_id
+      WHERE lp.entity_id = $1 AND a.account_type IN ('revenue','expense')
+        AND lp.journal_date BETWEEN $2 AND $3 AND lp.journal_type <> 'year_end_close'
+      GROUP BY a.id ORDER BY a.code`,
+    [scope.entityId, fy.start_date, fy.end_date]
+  );
+  const periods = (await db.query(
+    `SELECT id, period_no, name, status FROM accounting_periods WHERE financial_year_id = $1 ORDER BY period_no`,
+    [fyId]
+  )).rows;
+  const live = (await db.query(
+    `SELECT id, status, draft_no, journal_no FROM journal_entries
+      WHERE closes_financial_year_id = $1 AND status <> 'rejected' AND reversed_by_journal_id IS NULL`,
+    [fyId]
+  )).rows[0] ?? null;
+  const lines = [];
+  let profitNet = D3(0);
+  for (const r of nets.rows) {
+    const n = D3(r.net);
+    if (n.eq(0)) continue;
+    profitNet = profitNet.plus(n);
+    lines.push({
+      accountId: r.id,
+      code: r.code,
+      name: r.name,
+      debit: n.lt(0) ? n.neg().toFixed(2) : "0.00",
+      credit: n.gt(0) ? n.toFixed(2) : "0.00"
+    });
+  }
+  const profit = profitNet.neg();
+  if (!profitNet.eq(0) && ent.re_id) {
+    lines.push({
+      accountId: ent.re_id,
+      code: ent.re_code,
+      name: ent.re_name,
+      debit: profitNet.gt(0) ? profitNet.toFixed(2) : "0.00",
+      credit: profitNet.lt(0) ? profitNet.neg().toFixed(2) : "0.00"
+    });
+  }
+  const last = periods[periods.length - 1];
+  const blockers = [];
+  if (fy.is_closed) blockers.push({ code: "YEAR_ALREADY_CLOSED", message: `${fy.label} is already closed` });
+  if (!ent.re_id) blockers.push({ code: "RETAINED_EARNINGS_NOT_CONFIGURED", message: "Set the retained earnings account on the entity first" });
+  const openEarlier = periods.slice(0, -1).filter((p) => p.status !== "locked");
+  if (openEarlier.length) blockers.push({ code: "EARLIER_PERIODS_OPEN", message: `Lock ${openEarlier.map((p) => p.name).join(", ")} before closing the year` });
+  if (last && last.status === "locked" && !live) blockers.push({ code: "LAST_PERIOD_LOCKED", message: `${last.name} must be open to post the closing journal` });
+  if (lines.length === 0) blockers.push({ code: "NOTHING_TO_CLOSE", message: "No profit or loss has been posted in this year" });
+  const pending = await db.query(
+    `SELECT count(*)::int AS n FROM journal_entries j JOIN accounting_periods p ON p.id = j.period_id
+      WHERE p.financial_year_id = $1 AND j.status IN ('draft','submitted','approved') AND j.journal_type <> 'year_end_close'`,
+    [fyId]
+  );
+  const priorOpen = (await db.query(
+    `SELECT label FROM financial_years WHERE entity_id = $1 AND end_date < $2 AND NOT is_closed ORDER BY start_date`,
+    [scope.entityId, fy.start_date]
+  )).rows.map((r) => r.label);
+  if (priorOpen.length) blockers.push({ code: "PRIOR_YEAR_OPEN", message: `Close FY${priorOpen.join(", FY")} first` });
+  if (pending.rows[0].n) blockers.push({ code: "UNPOSTED_JOURNALS", message: `${pending.rows[0].n} journal(s) in ${fy.label} are not posted or rejected yet` });
+  return {
+    financialYear: { id: fy.id, label: fy.label, start: fy.start_date, end: fy.end_date, isClosed: fy.is_closed, closedAt: fy.closed_at },
+    profitForYear: profit.toFixed(2),
+    retainedEarnings: ent.re_id ? { accountId: ent.re_id, code: ent.re_code, name: ent.re_name } : null,
+    lines,
+    closingJournal: live,
+    blockers,
+    canGenerate: blockers.length === 0 && !live,
+    canFinalise: !!live && live.status === "posted" && !fy.is_closed && openEarlier.length === 0
+  };
+}
+async function generateClose(db, scope, actor, fyId) {
+  requirePerm(scope, "year.close");
+  const pv = await previewClose(db, scope, fyId);
+  if (pv.closingJournal) throw new DomainError("CLOSE_ALREADY_EXISTS", `A closing journal already exists for ${pv.financialYear.label}`);
+  if (pv.blockers.length) throw new DomainError("CLOSE_PRECONDITIONS", pv.blockers.map((b) => b.message).join("; "), { blockers: pv.blockers });
+  const j = await createDraft(db, scope, actor, {
+    journalDate: pv.financialYear.end,
+    description: `Year-end close ${pv.financialYear.label}: ${D3(pv.profitForYear).gte(0) ? "profit" : "loss"} for the year to retained earnings`,
+    reference: `CLOSE-${pv.financialYear.label}`,
+    lines: pv.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit, description: "Year-end close" }))
+  }, { journalType: "year_end_close", closesFinancialYearId: fyId });
+  return { journal: j, preview: pv };
+}
+async function finaliseClose(db, scope, actor, fyId) {
+  requirePerm(scope, "year.close");
+  requirePerm(scope, "periods.lock");
+  const pv = await previewClose(db, scope, fyId);
+  if (!pv.canFinalise) {
+    throw new DomainError("YEAR_NOT_CLOSABLE", pv.financialYear.isClosed ? "This year is already closed" : "Post the closing journal (approved by someone other than its preparer) and lock earlier periods first");
+  }
+  return withTx(db, async (tx) => {
+    const open = await tx.query(
+      `UPDATE accounting_periods SET status = 'locked', locked_at = now(), locked_by = $2
+        WHERE financial_year_id = $1 AND status <> 'locked' RETURNING id, name`,
+      [fyId, actor.id]
+    );
+    for (const p of open.rows) {
+      await audit(tx, { entityId: scope.entityId, actorId: actor.id, action: "period.lock", objectType: "period", objectId: p.id, reason: "Year-end close" });
+    }
+    const fy = await tx.query(
+      `UPDATE financial_years SET is_closed = true, closed_at = now(), closed_by = $2, closing_journal_id = $3
+        WHERE id = $1 RETURNING id, label, closed_at`,
+      [fyId, actor.id, pv.closingJournal.id]
+    );
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: "year.close",
+      objectType: "financial_year",
+      objectId: fyId,
+      after: { label: fy.rows[0].label, closingJournalId: pv.closingJournal.id, profitForYear: pv.profitForYear, periodsLocked: open.rowCount }
+    });
+    return { ...fy.rows[0], periodsLocked: open.rows.map((p) => p.name), profitForYear: pv.profitForYear };
+  });
+}
+
 // apps/api/src/services/health.ts
-var API_VERSION = "0.4.0-dev";
+var API_VERSION = "0.5.0-dev";
 async function systemHealth(db, scope) {
   if (!scope.permissions.has("audit.read") && !scope.permissions.has("users.manage")) {
     throw new DomainError("FORBIDDEN", "System health needs audit.read or users.manage");
@@ -2037,7 +2190,7 @@ async function systemHealth(db, scope) {
 }
 
 // apps/api/src/services/dashboard.ts
-var D3 = (v) => new Decimal(v ?? 0);
+var D4 = (v) => new Decimal(v ?? 0);
 var s22 = (d) => d.toFixed(2);
 var shiftYear = (iso, n) => {
   const [y, m, d] = iso.split("-").map(Number);
@@ -2049,10 +2202,10 @@ async function pl(db, entityId, from, to) {
   const r = await db.query(
     `SELECT COALESCE(-sum(net) FILTER (WHERE account_type = 'revenue'), 0) AS revenue,
             COALESCE(sum(net) FILTER (WHERE account_type = 'expense'), 0) AS expenses
-       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3`,
+       FROM ledger_postings WHERE entity_id = $1 AND journal_date BETWEEN $2 AND $3 AND journal_type <> 'year_end_close'`,
     [entityId, from, to]
   );
-  return { revenue: D3(r.rows[0].revenue), expenses: D3(r.rows[0].expenses) };
+  return { revenue: D4(r.rows[0].revenue), expenses: D4(r.rows[0].expenses) };
 }
 async function cashAt(db, entityId, date) {
   const r = await db.query(
@@ -2060,7 +2213,7 @@ async function cashAt(db, entityId, date) {
       WHERE lp.entity_id = $1 AND a.cash_flow_class = 'cash' AND lp.journal_date <= $2`,
     [entityId, date]
   );
-  return D3(r.rows[0].net);
+  return D4(r.rows[0].net);
 }
 async function dashboard(db, scope, periodId) {
   requirePerm(scope, "reports.read");
@@ -2079,21 +2232,21 @@ async function dashboard(db, scope, periodId) {
     `SELECT account_type, COALESCE(sum(net), 0) AS net FROM ledger_postings WHERE entity_id = $1 AND journal_date <= $2 GROUP BY account_type`,
     [scope.entityId, to]
   );
-  const by = (t) => D3(pos.rows.find((r) => r.account_type === t)?.net ?? 0);
+  const by = (t) => D4(pos.rows.find((r) => r.account_type === t)?.net ?? 0);
   const assets = by("asset"), liabilities = by("liability").neg();
   const equity = by("equity").neg().minus(by("revenue")).minus(by("expense"));
   const months = await db.query(
     `SELECT to_char(m, 'YYYY-MM') AS month,
-            COALESCE((SELECT -sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'revenue' AND date_trunc('month', journal_date) = m), 0) AS revenue,
-            COALESCE((SELECT sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'expense' AND date_trunc('month', journal_date) = m), 0) AS expenses
+            COALESCE((SELECT -sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'revenue' AND journal_type <> 'year_end_close' AND date_trunc('month', journal_date) = m), 0) AS revenue,
+            COALESCE((SELECT sum(net) FROM ledger_postings WHERE entity_id = $1 AND account_type = 'expense' AND journal_type <> 'year_end_close' AND date_trunc('month', journal_date) = m), 0) AS expenses
        FROM generate_series(date_trunc('month', $2::date), date_trunc('month', $3::date), interval '1 month') m ORDER BY m`,
     [scope.entityId, from, p.fy_end]
   );
   const monthly = months.rows.map((r) => ({
     month: r.month,
-    revenue: s22(D3(r.revenue)),
-    expenses: s22(D3(r.expenses)),
-    netProfit: s22(D3(r.revenue).minus(D3(r.expenses))),
+    revenue: s22(D4(r.revenue)),
+    expenses: s22(D4(r.expenses)),
+    netProfit: s22(D4(r.revenue).minus(D4(r.expenses))),
     inFuture: r.month > to.slice(0, 7)
   }));
   const [j, runs, periods, unmapped] = await Promise.all([
@@ -2159,7 +2312,7 @@ async function dashboard(db, scope, periodId) {
     tasks,
     close: { locked: periods.rows[0].locked, total: periods.rows[0].total },
     latestRun,
-    trialBalance: { balanced: D3(tbCheck.dr).eq(D3(tbCheck.cr)), debit: s22(D3(tbCheck.dr)) },
+    trialBalance: { balanced: D4(tbCheck.dr).eq(D4(tbCheck.cr)), debit: s22(D4(tbCheck.dr)) },
     auditChain
   };
 }
@@ -2173,6 +2326,10 @@ var STATUS = {
   INVITE_FAILED: 502,
   RATE_LIMITED: 429,
   USER_INACTIVE: 409,
+  CLOSE_ALREADY_EXISTS: 409,
+  CLOSE_PRECONDITIONS: 422,
+  YEAR_NOT_CLOSABLE: 409,
+  CLOSING_JOURNAL_DATE: 422,
   APPROVAL_POLICY_APPEND_ONLY: 409,
   ACCESS_CODE_REQUIRED: 401,
   FORBIDDEN: 403,
@@ -2342,9 +2499,20 @@ function buildApp(db, opts = {}) {
     return createReversal(db, req.scope, req.actor, req.params.id, req.body);
   });
   app2.get(`${E}/ledger`, { preHandler: scoped }, async (req) => accountLedger(db, req.scope, req.query));
+  app2.get(`${E}/financial-years/:id/close`, { preHandler: scoped }, async (req) => previewClose(db, req.scope, req.params.id));
+  app2.post(`${E}/financial-years/:id/close`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return generateClose(db, req.scope, req.actor, req.params.id);
+  });
+  app2.post(`${E}/financial-years/:id/close/finalise`, { preHandler: scoped }, async (req) => finaliseClose(db, req.scope, req.actor, req.params.id));
   app2.get(`${E}/trial-balance`, { preHandler: scoped }, async (req) => {
     const q = req.query;
-    return trialBalance(db, req.scope, { periodId: q.periodId, basis: q.basis, includeZero: q.includeZero === "true" });
+    return trialBalance(db, req.scope, {
+      periodId: q.periodId,
+      basis: q.basis,
+      includeZero: q.includeZero === "true",
+      stage: q.stage === "pre_close" ? "pre_close" : "post_close"
+    });
   });
   app2.get(`${E}/dashboard`, { preHandler: scoped }, async (req) => dashboard(db, req.scope, req.query.periodId));
   app2.get(`${E}/summary`, { preHandler: scoped }, async (req) => summary(db, req.scope, req.query.periodId));
