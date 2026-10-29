@@ -6,11 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${VITE_API_BASE:=https://ppyancjjjsaogyjpkxcr.supabase.co/functions/v1/pep-api}"
-export VITE_API_BASE VITE_BASE=./
+export VITE_API_BASE VITE_BASE=./ VITE_ROUTER=hash   # Pages has no URL rewrites: #/entity/screen routes
 
 npm run build:web
 rm -f apps/web/dist/.htaccess                          # Apache-only
 grep -q 'src="./assets/' apps/web/dist/index.html || { echo "expected relative asset paths"; exit 1; }
+./scripts/check-budgets.sh apps/web/dist
 
 rm -rf app && cp -r apps/web/dist app
 

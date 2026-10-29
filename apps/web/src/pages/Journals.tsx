@@ -8,7 +8,7 @@ export default function Journals() {
   const c = useApp();
   const [status, setStatus] = useState(c.params.status ?? 'all');
   const [open, setOpen] = useState<string | null>(c.params.journalId ?? null);
-  const [editing, setEditing] = useState<any | null>(null);
+  const [editing, setEditing] = useState<any | null>(c.params.new === '1' && can(c, 'journal.prepare') ? {} : null);
   const { data: list } = useApi<any[]>(`${E(c)}/journals${status === 'all' ? '' : `?status=${status}`}`, [c.refreshKey]);
   return (
     <>
@@ -106,7 +106,7 @@ function JournalDrawer({ id, onClose, onEdit, onOpen }: { id: string; onClose: (
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={3}>Total {j.totals.balanced ? '✓ balanced' : '✗ out of balance'}</td><td className="num">{money(j.totals.debit)}</td><td className="num">{money(j.totals.credit)}</td></tr></tfoot>
+            <tfoot><tr><td colSpan={3}>Total {j.totals.balanced ? 'balanced' : 'out of balance'}</td><td className="num">{money(j.totals.debit)}</td><td className="num">{money(j.totals.credit)}</td></tr></tfoot>
           </table>
 
           <div className="row" style={{ marginTop: 20, justifyContent: 'flex-end' }}>
@@ -210,7 +210,7 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
           <div className="diff-bar">
             <span>Debits <b className="mono">{money(fromMinor(dr))}</b></span>
             <span>Credits <b className="mono">{money(fromMinor(cr))}</b></span>
-            <span className={dr === cr && dr > 0n ? 'ok' : 'bad'}>{dr === cr && dr > 0n ? '✓ Balanced' : `Difference ${money(fromMinor(dr - cr < 0n ? cr - dr : dr - cr))}`}</span>
+            <span className={dr === cr && dr > 0n ? 'ok' : 'bad'}>{dr === cr && dr > 0n ? 'Balanced' : `Difference ${money(fromMinor(dr - cr < 0n ? cr - dr : dr - cr))}`}</span>
           </div>
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
             <span className="sub" style={{ marginRight: 'auto' }}>Drafts may be saved unbalanced. Submission requires a balanced entry in an open period.</span>

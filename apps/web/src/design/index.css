@@ -1,0 +1,112 @@
+/* PEP ERP design system — tokens and base layer (blueprint § Design system).
+   Motion rules follow Emil Kowalski's design-engineering guidance: transform/opacity only,
+   strong ease-out for entrances, no animation on keyboard actions, hover gated to fine pointers. */
+@layer theme, base, legacy, components, utilities;
+@import 'tailwindcss';
+/* Release 1–2 screens keep their stylesheet in a lower layer, so new utilities always win. */
+@import '../styles.css' layer(legacy);
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-navy-950: #071330;
+  --color-navy-900: #0b1b3f;
+  --color-navy-800: #13285a;
+  --color-navy-700: #1c3570;
+  --color-navy-50: #eef2fa;
+  --color-gold-500: #f5b301;
+  --color-gold-600: #d99a00;
+  --color-gold-50: #fff7dd;
+  --color-gold-800: #7a5200;
+  --color-action-600: #2563eb;
+  --color-action-200: #bcd0fb;
+  --color-action-50: #eaf1ff;
+  --color-gain-600: #16a34a;
+  --color-gain-700: #15803d;
+  --color-gain-50: #e8f7ee;
+  --color-loss-600: #dc2626;
+  --color-loss-700: #b91c1c;
+  --color-loss-50: #fdecec;
+  --color-warn-600: #d97706;
+  --color-warn-700: #b45309;
+  --color-warn-50: #fef3e2;
+  --color-ink: #0f172a;
+  --color-ink-2: #334155;
+  --color-muted: #5b6b80;
+  --color-line: #e5e9f2;
+  --color-canvas: #f4f6fb;
+  --color-surface: #ffffff;
+
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-dialog: 16px;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px rgb(15 23 42 / 0.05);
+  --shadow-overlay: 0 12px 40px rgb(7 19 48 / 0.18), 0 2px 6px rgb(7 19 48 / 0.08);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-canvas text-ink font-sans antialiased; }
+  :focus-visible { outline: 2px solid var(--color-action-600); outline-offset: 2px; }
+  /* Inputs at 16px on phones so iOS does not zoom the page. */
+  @media (max-width: 767px) { input, select, textarea { font-size: 16px !important; } }
+}
+
+@layer components {
+  /* Release 1-2 screens inside the new shell: never push the page wider than the screen. */
+  .legacy { min-width: 0; }
+  .legacy .card { max-width: 100%; overflow-x: auto; }
+  .legacy .fs-layout > *, .legacy .grid > * { min-width: 0; }
+  .legacy .page-head { flex-wrap: wrap; }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  /* Large figures: interface font with tabular digits, so columns of numbers align without a mono face. */
+  .tnum { font-variant-numeric: tabular-nums lining-nums; }
+
+  /* Press feedback for every pressable element (100–160 ms, subtle scale). */
+  .pressable { transition: transform 160ms var(--ease-out), background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
+  .pressable:active:not(:disabled) { transform: scale(0.97); }
+
+  /* Menus and popovers scale from their trigger. */
+  .pop-in { transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-popover-content-transform-origin, top)); }
+  .pop-in[data-state='open'] { animation: pep-pop-in 180ms var(--ease-out); }
+  .pop-in[data-state='closed'] { animation: pep-pop-out 120ms var(--ease-out); }
+
+  /* Side sheet (mobile navigation): drawer curve in, faster out. */
+  .sheet[data-state='open'] { animation: pep-sheet-in 240ms var(--ease-drawer); }
+  .sheet[data-state='closed'] { animation: pep-sheet-out 180ms var(--ease-drawer); }
+  .scrim[data-state='open'] { animation: pep-fade-in 240ms ease; }
+  .scrim[data-state='closed'] { animation: pep-fade-out 180ms ease; }
+
+  .skeleton { background: linear-gradient(90deg, #eef1f6 0%, #f6f8fb 50%, #eef1f6 100%); background-size: 200% 100%; animation: pep-shimmer 1.2s linear infinite; border-radius: 6px; }
+}
+
+@keyframes pep-pop-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes pep-pop-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.97); } }
+@keyframes pep-sheet-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes pep-sheet-out { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes pep-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pep-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes pep-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* Hover effects only where a precise pointer exists — never "stuck hover" after a tap. */
+@media (hover: hover) and (pointer: fine) {
+  .hover-row:hover { background: #f7f9fd; }
+  .hover-lift:hover { border-color: #c9d3e6; }
+}
+
+/* Reduced motion: keep fades, drop movement. */
+@media (prefers-reduced-motion: reduce) {
+  .pressable:active:not(:disabled) { transform: none; }
+  .pop-in[data-state='open'], .pop-in[data-state='closed'] { animation-name: pep-fade-in; }
+  .sheet[data-state='open'], .sheet[data-state='closed'] { animation: pep-fade-in 120ms ease; }
+  .skeleton { animation: none; }
+}

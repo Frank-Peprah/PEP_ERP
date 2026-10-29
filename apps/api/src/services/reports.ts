@@ -6,7 +6,7 @@ const BS = ['asset', 'liability', 'equity'];
 const D = (v: unknown) => new Decimal((v as string) ?? 0);
 const split = (net: Decimal) => ({ debit: net.gt(0) ? net.toFixed(2) : '0.00', credit: net.lt(0) ? net.neg().toFixed(2) : '0.00' });
 
-async function resolvePeriod(db: Db, entityId: string, periodId?: string) {
+export async function resolvePeriod(db: Db, entityId: string, periodId?: string) {
   const r = periodId
     ? await db.query(`SELECT p.*, fy.start_date AS fy_start, fy.end_date AS fy_end, fy.label AS fy_label
                         FROM accounting_periods p JOIN financial_years fy ON fy.id = p.financial_year_id

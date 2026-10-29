@@ -9,6 +9,7 @@ import * as J from './services/journals.js';
 import * as S from './services/setup.js';
 import * as R from './services/reports.js';
 import * as FS from './services/statements.js';
+import { dashboard } from './services/dashboard.js';
 
 const STATUS: Record<string, number> = {
   AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
@@ -71,7 +72,7 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
 
   app.get('/api/health', async () => {
     await db.query('SELECT 1');
-    return { ok: true, service: 'pep-erp-api', version: '0.2.0' };
+    return { ok: true, service: 'pep-erp-api', version: '0.3.0' };
   });
 
   // Staging gate: when STAGING_ACCESS_CODE is set, demo login and the user list require it.
@@ -167,6 +168,7 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
     const q = req.query as any;
     return R.trialBalance(db, req.scope!, { periodId: q.periodId, basis: q.basis, includeZero: q.includeZero === 'true' });
   });
+  app.get(`${E}/dashboard`, { preHandler: scoped }, async (req) => dashboard(db, req.scope!, (req.query as any).periodId));
   app.get(`${E}/summary`, { preHandler: scoped }, async (req) => R.summary(db, req.scope!, (req.query as any).periodId));
   // ── Release 2: financial statements ──
   app.get(`${E}/statement-preview`, { preHandler: scoped }, async (req) => FS.previewPack(db, req.scope!, (req.query as any).periodId));

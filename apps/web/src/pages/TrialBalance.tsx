@@ -8,7 +8,7 @@ export default function TrialBalance() {
   const c = useApp();
   const { data: fys } = useApi<any[]>(`${E(c)}/periods`);
   const periods = useMemo(() => (fys ?? []).flatMap((f) => f.periods.map((p: any) => ({ ...p, fy: f.label }))).reverse(), [fys]);
-  const [periodId, setPeriodId] = useState('');
+  const [periodId, setPeriodId] = useState(c.params.periodId ?? '');
   const [basis, setBasis] = useState<'ytd' | 'period'>('ytd');
   const q = `${E(c)}/trial-balance?basis=${basis}${periodId ? `&periodId=${periodId}` : ''}`;
   const { data: tb, error } = useApi(q, [c.refreshKey]);
@@ -34,7 +34,7 @@ export default function TrialBalance() {
       <div className="card" style={{ marginBottom: 16 }}><div className="card-b row">
         <label className="field" style={{ minWidth: 220 }}>Period
           <select className="input" value={periodId || tb?.parameters.periodId || ''} onChange={(e) => setPeriodId(e.target.value)}>
-            {periods.map((p) => <option key={p.id} value={p.id}>{p.name} (FY{p.fy}) {p.status === 'locked' ? '🔒' : ''}</option>)}
+            {periods.map((p) => <option key={p.id} value={p.id}>{p.name} (FY{p.fy}){p.status === 'locked' ? ' (locked)' : ''}</option>)}
           </select></label>
         <div className="field">Basis<div className="chips">
           <button className={`chip ${basis === 'ytd' ? 'on' : ''}`} onClick={() => setBasis('ytd')}>Year to date</button>

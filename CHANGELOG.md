@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0 — 2026-10-29 — UI Phase 0: design system, app shell, dashboard
+Blueprint: "PEP ERP — UI Blueprint" (100 screens, six phases, go-live 19 Feb 2027).
+- **Stack (Option A):** React 19, Vite 8, Tailwind CSS 4, Radix UI primitives, React Router 8, TanStack Query, cmdk,
+  Sonner, Lucide icons; fonts self-hosted (no Google Fonts requests). Charts are plain SVG (`design/ComboChart.tsx`):
+  a charting library would have cost 105 KB and broken the 80 KB module budget.
+- **Design system** (`apps/web/src/design`): navy/gold tokens from the reference, semantic colours that pass WCAG AA
+  (text uses the -700 shades), motion rules from Emil Kowalski's design-engineering skill: press scale 0.97, menus scale
+  from their trigger with a strong ease-out, drawer curve for the phone menu, no animation on the command palette,
+  hover gated to fine pointers, reduced-motion respected.
+- **App shell** (`apps/web/src/shell`): grouped navy sidebar; top bar with Ctrl/Cmd+K command palette (screens,
+  accounts, journals, actions, entity switch), entity switcher that keeps the current screen, global period switcher,
+  work bell with role-aware counts, user menu; phone bottom bar and slide-in menu; lock banner on locked periods.
+  Entity and period live in the URL (`/trulander/trial-balance?period=2026-10`). Roadmap modules show their phase.
+- **Dashboard (G01) rebuilt to the reference** on a new endpoint `GET /entities/:id/dashboard`: four KPIs with a stated
+  comparison basis, 12-month revenue/expenses/net-profit chart, financial position (ties), role-aware tasks, period
+  close, latest statement run, trial-balance check, audit-chain status. Every card links to its source.
+- **System pages** Z01 Not found, Z02 No access, Z03 Offline. Release 1–2 screens run inside the new shell through a
+  bridge until Phase 1 rebuilds them; their stylesheet sits in a lower CSS layer. Emoji removed from all screens.
+- **Security:** content security policy (meta tag in every build; header plus HSTS and Permissions-Policy in the
+  SiteGround `.htaccess`); no data: URIs in the build.
+- **Performance budgets** enforced by `scripts/check-budgets.sh` (shell 167 KB of 180 KB; modules 1–6 KB of 80 KB).
+- **Tests:** 74 unit/API/database tests (adds dashboard and formatting) and `tests/e2e/phase0.e2e.mjs`: 14 browser
+  journeys at 1440 px and 390 px with axe accessibility checks, run against the local build and the exact Pages artefact.
+- Staging Pages build uses hash routes (`#/trulander/dashboard`) because Pages cannot rewrite paths.
+
 ## 0.2.0 — 2026-10-28 — Release 2: Financial Reporting & Assurance Engine
 - **Statement engine** (`apps/api/src/services/statements.ts`): statement of financial position, profit or loss and OCI
   (expenses by function), changes in equity, cash flows (indirect method) and notes, generated from posted ledger lines

@@ -22,7 +22,8 @@ npm run db:seed                   # resets pep_dev, migrates, loads DEMO data (T
 npm run build:web                 # builds the React app into apps/web/dist
 npm run dev:api                   # http://localhost:4000 — serves API and the built UI
 # or, for UI development with hot reload:  npm run dev:web  → http://localhost:5173
-npm test                          # 42 tests: invariants, DB-bypass attempts, isolation, domain
+npm test                          # 74 tests: invariants, DB-bypass attempts, isolation, statements, dashboard
+node tests/e2e/phase0.e2e.mjs     # 14 browser journeys, desktop + phone, accessibility (API on :4000 serving the build)
 npx tsx tests/perf/tb-100k.ts     # performance check: 100,000 posted lines
 ```
 

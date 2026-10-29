@@ -184,7 +184,7 @@ export default function Statements() {
   const c = useApp();
   const { data: fys } = useApi<any[]>(`${E(c)}/periods`);
   const periods = useMemo(() => (fys ?? []).flatMap((f) => f.periods.map((p: any) => ({ ...p, fy: f.label }))).reverse(), [fys]);
-  const [periodId, setPeriodId] = useState('');
+  const [periodId, setPeriodId] = useState(c.params.periodId ?? '');
   const [tab, setTab] = useState<Tab>((c.params.tab as Tab) ?? 'sfp');
   const [runId, setRunId] = useState<string | null>(c.params.runId ?? null);
   const [busy, setBusy] = useState(false);
@@ -260,7 +260,7 @@ export default function Statements() {
           <div className="card" style={{ marginBottom: 14 }}><div className="card-b">
             <label className="field">Statement date (period end)
               <select className="input" value={periodId} onChange={(e) => { setPeriodId(e.target.value); setRunId(null); }}>
-                {periods.map((p) => <option key={p.id} value={p.id}>{p.name} (FY{p.fy}) {p.status === 'locked' ? '🔒' : ''}</option>)}
+                {periods.map((p) => <option key={p.id} value={p.id}>{p.name} (FY{p.fy}){p.status === 'locked' ? ' (locked)' : ''}</option>)}
               </select></label>
             <div className="row" style={{ marginTop: 10 }}>
               <button className={`btn sm ${!runId ? 'primary' : ''}`} onClick={() => setRunId(null)}>Live preview</button>
