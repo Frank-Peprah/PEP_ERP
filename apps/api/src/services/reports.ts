@@ -42,6 +42,8 @@ export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: s
                      AND (a.account_type IN ('asset','liability','equity') OR lp.journal_date >= $2)), 0) AS opening_net,
             COALESCE(sum(lp.debit)  FILTER (WHERE lp.journal_date BETWEEN $3 AND $4), 0) AS mov_debit,
             COALESCE(sum(lp.credit) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4), 0) AS mov_credit,
+            COALESCE(sum(lp.debit)  FILTER (WHERE lp.journal_date BETWEEN $3 AND $4 AND lp.is_adjustment), 0) AS adj_debit,
+            COALESCE(sum(lp.credit) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4 AND lp.is_adjustment), 0) AS adj_credit,
             count(lp.line_id) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4)::int AS line_count
        FROM accounts a
        LEFT JOIN ledger_postings lp ON lp.account_id = a.id AND lp.journal_date <= $4
@@ -79,6 +81,9 @@ export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: s
       statementLineCode: x.statement_line_code, isPostable: x.is_postable,
       opening: split(opening), movement: { debit: D(x.mov_debit).toFixed(2), credit: D(x.mov_credit).toFixed(2) },
       closing: split(closing), closingNet: closing.toFixed(2), lineCount: x.line_count, synthetic: false,
+      // Adjusted-TB worksheet: unadjusted + adjustments (in this window) = adjusted (= closing).
+      adjustments: { debit: D(x.adj_debit).toFixed(2), credit: D(x.adj_credit).toFixed(2) },
+      unadjusted: split(closing.minus(x.adj_debit).plus(x.adj_credit)),
     };
   }).filter((x) => q.includeZero || x.isPostable && (x.lineCount > 0 || x.closingNet !== '0.00' || x.opening.debit !== '0.00' || x.opening.credit !== '0.00'));
 
@@ -90,6 +95,7 @@ export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: s
       accountType: 'equity', normalBalance: 'credit', statementLineCode: 'EQ_RETAINED', isPostable: false,
       opening: split(priorNet), movement: { debit: '0.00', credit: '0.00' }, closing: split(priorNet), closingNet: priorNet.toFixed(2),
       lineCount: 0, synthetic: true,
+      adjustments: { debit: '0.00', credit: '0.00' }, unadjusted: split(priorNet),
     });
     if (!re.retained_earnings_account_id) {
       exceptions.push({ code: 'RETAINED_EARNINGS_NOT_CONFIGURED', severity: 'blocking', message: 'Set the retained earnings account on the entity before closing the year' });
@@ -103,6 +109,8 @@ export async function trialBalance(db: Db, scope: EntityScope, q: { periodId?: s
     opening: { debit: sum((x) => x.opening.debit).toFixed(2), credit: sum((x) => x.opening.credit).toFixed(2) },
     movement: { debit: sum((x) => x.movement.debit).toFixed(2), credit: sum((x) => x.movement.credit).toFixed(2) },
     closing: { debit: sum((x) => x.closing.debit).toFixed(2), credit: sum((x) => x.closing.credit).toFixed(2) },
+    adjustments: { debit: sum((x) => x.adjustments.debit).toFixed(2), credit: sum((x) => x.adjustments.credit).toFixed(2) },
+    unadjusted: { debit: sum((x) => x.unadjusted.debit).toFixed(2), credit: sum((x) => x.unadjusted.credit).toFixed(2) },
   };
   const balanced = totals.closing.debit === totals.closing.credit && totals.movement.debit === totals.movement.credit;
   if (!balanced) exceptions.unshift({ code: 'TB_OUT_OF_BALANCE', severity: 'blocking', message: 'Trial balance does not balance' });

@@ -398,6 +398,8 @@ async function claimInvitation(db, authUserId, email) {
 // apps/api/src/services/journals.ts
 import { createHash } from "node:crypto";
 var ALLOWED_TYPES = /* @__PURE__ */ new Set(["manual", "opening_balance", "accrual", "prepayment", "recurring", "fx_revaluation", "tax_adjustment", "correction"]);
+var ADJUSTING_TYPES = /* @__PURE__ */ new Set(["accrual", "prepayment", "fx_revaluation", "tax_adjustment", "correction"]);
+var adjusting = (type, flag) => type !== "opening_balance" && type !== "year_end_close" && (typeof flag === "boolean" ? flag : ADJUSTING_TYPES.has(type));
 async function entityRow(tx, entityId) {
   const r = await tx.query("SELECT id, functional_currency, segregation_enabled FROM entities WHERE id = $1", [entityId]);
   if (!r.rowCount) throw new DomainError("NOT_FOUND", "Entity not found");
@@ -495,7 +497,7 @@ async function listJournals(db, entityId, q) {
   }
   params.push(Math.min(q.limit ?? 200, 1e3));
   const r = await db.query(
-    `SELECT j.id, j.draft_no, j.journal_no, j.journal_type, j.journal_date, j.description, j.reference, j.status,
+    `SELECT j.id, j.draft_no, j.journal_no, j.journal_type, j.is_adjustment, j.journal_date, j.description, j.reference, j.status,
             j.currency, j.version, up.full_name AS prepared_by_name, j.prepared_by, j.reverses_journal_id, j.reversed_by_journal_id,
             COALESCE((SELECT sum(debit) FROM journal_lines WHERE journal_id = j.id),0)::numeric(20,2) AS total_debit,
             COALESCE((SELECT sum(credit) FROM journal_lines WHERE journal_id = j.id),0)::numeric(20,2) AS total_credit
@@ -538,8 +540,8 @@ async function createDraft(db, scope, actor, input, internal) {
     await validateAccounts(tx, scope.entityId, lines.map((l) => l.accountId), input.journalDate);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description,
-                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id, is_adjustment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [
         scope.entityId,
         type,
@@ -552,7 +554,8 @@ async function createDraft(db, scope, actor, input, internal) {
         actor.id,
         input.idempotencyKey ?? null,
         internal ? "system" : "manual",
-        internal?.closesFinancialYearId ?? null
+        internal?.closesFinancialYearId ?? null,
+        adjusting(type, internal ? false : input.isAdjustment)
       ]
     );
     const id = j.rows[0].id;
@@ -596,7 +599,7 @@ async function updateDraft(db, scope, actor, id, input) {
     await tx.query("DELETE FROM journal_lines WHERE journal_id = $1", [id]);
     await tx.query(
       `UPDATE journal_entries SET journal_date=$1, period_id=$2, description=$3, reference=$4, currency=$5, fx_rate=$6,
-              journal_type=$7 WHERE id=$8`,
+              journal_type=$7, is_adjustment=$8 WHERE id=$9`,
       [
         input.journalDate,
         period.id,
@@ -605,6 +608,7 @@ async function updateDraft(db, scope, actor, id, input) {
         currency,
         fxRate,
         input.journalType ?? j.journal_type,
+        typeof input.isAdjustment === "boolean" || input.journalType !== void 0 ? adjusting(input.journalType ?? j.journal_type, input.isAdjustment) : j.is_adjustment,
         id
       ]
     );
@@ -730,8 +734,8 @@ async function createReversal(db, scope, actor, id, opts) {
     const lines = await tx.query("SELECT * FROM journal_lines WHERE journal_id = $1 ORDER BY line_no", [id]);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description, currency, fx_rate,
-                                    prepared_by, reverses_journal_id, source)
-       VALUES ($1,'reversal',$2,$3,$4,$5,$6,$7,$8,$9,'reversal') RETURNING id`,
+                                    prepared_by, reverses_journal_id, source, is_adjustment)
+       VALUES ($1,'reversal',$2,$3,$4,$5,$6,$7,$8,$9,'reversal',$10) RETURNING id`,
       [
         scope.entityId,
         opts.reversalDate,
@@ -741,7 +745,8 @@ async function createReversal(db, scope, actor, id, opts) {
         o.currency,
         o.fx_rate,
         actor.id,
-        id
+        id,
+        o.is_adjustment
       ]
     );
     const newId = j.rows[0].id;
@@ -1029,6 +1034,8 @@ async function trialBalance(db, scope, q) {
                      AND (a.account_type IN ('asset','liability','equity') OR lp.journal_date >= $2)), 0) AS opening_net,
             COALESCE(sum(lp.debit)  FILTER (WHERE lp.journal_date BETWEEN $3 AND $4), 0) AS mov_debit,
             COALESCE(sum(lp.credit) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4), 0) AS mov_credit,
+            COALESCE(sum(lp.debit)  FILTER (WHERE lp.journal_date BETWEEN $3 AND $4 AND lp.is_adjustment), 0) AS adj_debit,
+            COALESCE(sum(lp.credit) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4 AND lp.is_adjustment), 0) AS adj_credit,
             count(lp.line_id) FILTER (WHERE lp.journal_date BETWEEN $3 AND $4)::int AS line_count
        FROM accounts a
        LEFT JOIN ledger_postings lp ON lp.account_id = a.id AND lp.journal_date <= $4
@@ -1084,7 +1091,10 @@ async function trialBalance(db, scope, q) {
       closing: split(closing),
       closingNet: closing.toFixed(2),
       lineCount: x.line_count,
-      synthetic: false
+      synthetic: false,
+      // Adjusted-TB worksheet: unadjusted + adjustments (in this window) = adjusted (= closing).
+      adjustments: { debit: D(x.adj_debit).toFixed(2), credit: D(x.adj_credit).toFixed(2) },
+      unadjusted: split(closing.minus(x.adj_debit).plus(x.adj_credit))
     };
   }).filter((x) => q.includeZero || x.isPostable && (x.lineCount > 0 || x.closingNet !== "0.00" || x.opening.debit !== "0.00" || x.opening.credit !== "0.00"));
   const priorNet = D(prior.rows[0].net);
@@ -1103,7 +1113,9 @@ async function trialBalance(db, scope, q) {
       closing: split(priorNet),
       closingNet: priorNet.toFixed(2),
       lineCount: 0,
-      synthetic: true
+      synthetic: true,
+      adjustments: { debit: "0.00", credit: "0.00" },
+      unadjusted: split(priorNet)
     });
     if (!re.retained_earnings_account_id) {
       exceptions.push({ code: "RETAINED_EARNINGS_NOT_CONFIGURED", severity: "blocking", message: "Set the retained earnings account on the entity before closing the year" });
@@ -1116,7 +1128,9 @@ async function trialBalance(db, scope, q) {
   const totals = {
     opening: { debit: sum((x) => x.opening.debit).toFixed(2), credit: sum((x) => x.opening.credit).toFixed(2) },
     movement: { debit: sum((x) => x.movement.debit).toFixed(2), credit: sum((x) => x.movement.credit).toFixed(2) },
-    closing: { debit: sum((x) => x.closing.debit).toFixed(2), credit: sum((x) => x.closing.credit).toFixed(2) }
+    closing: { debit: sum((x) => x.closing.debit).toFixed(2), credit: sum((x) => x.closing.credit).toFixed(2) },
+    adjustments: { debit: sum((x) => x.adjustments.debit).toFixed(2), credit: sum((x) => x.adjustments.credit).toFixed(2) },
+    unadjusted: { debit: sum((x) => x.unadjusted.debit).toFixed(2), credit: sum((x) => x.unadjusted.credit).toFixed(2) }
   };
   const balanced = totals.closing.debit === totals.closing.credit && totals.movement.debit === totals.movement.credit;
   if (!balanced) exceptions.unshift({ code: "TB_OUT_OF_BALANCE", severity: "blocking", message: "Trial balance does not balance" });
@@ -2135,7 +2149,7 @@ async function finaliseClose(db, scope, actor, fyId) {
 }
 
 // apps/api/src/services/health.ts
-var API_VERSION = "0.5.0-dev";
+var API_VERSION = "0.5.1-dev";
 async function systemHealth(db, scope) {
   if (!scope.permissions.has("audit.read") && !scope.permissions.has("users.manage")) {
     throw new DomainError("FORBIDDEN", "System health needs audit.read or users.manage");

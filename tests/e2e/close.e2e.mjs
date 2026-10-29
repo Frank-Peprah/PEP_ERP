@@ -1,5 +1,5 @@
 /**
- * Blueprint Phase 1 — Year-end close screen. Desktop 1440 px and phone 390 px, axe on every screen.
+ * Blueprint Phase 1 — Year-end close and adjusted trial balance screens. Desktop 1440 px and phone 390 px, axe on every screen.
  *   E2E_BASE=http://localhost:4000 node tests/e2e/close.e2e.mjs
  */
 import { chromium } from 'playwright';
@@ -46,6 +46,19 @@ for (const [vp, size] of Object.entries(VIEWPORTS)) {
     const state = await page.locator('main').innerText();
     assert(/Before closing|is closed|Draft .* created|Posted/.test(state) || /Generate/.test(state), 'no close state shown');
     await axe(page, 'year-end close'); await noOverflow(page, 'year-end close');
+    assert(!errors.length, errors.join('; '));
+    await ctx.close();
+  });
+
+  await check(`[${vp}] adjusted trial balance: unadjusted + adjustments = adjusted, and it balances`, async () => {
+    const { page, ctx, errors } = await pageAs('frank@pep.local', size);
+    await page.goto(`${BASE}/trulander/trial-balance`);
+    await page.getByRole('heading', { name: 'Trial balance' }).waitFor({ timeout: 20000 });
+    await page.getByRole('button', { name: 'Adjusted' }).click();
+    await page.getByRole('columnheader', { name: 'Unadjusted' }).waitFor();
+    await page.getByRole('columnheader', { name: 'Adjustments' }).waitFor();
+    await page.getByText('Balanced').first().waitFor();
+    await axe(page, 'adjusted trial balance'); await noOverflow(page, 'adjusted trial balance');
     assert(!errors.length, errors.join('; '));
     await ctx.close();
   });

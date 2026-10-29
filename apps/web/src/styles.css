@@ -150,6 +150,11 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* ── Release 2: financial statements ── */
 .b-under_review { background: var(--amber-50); color: var(--amber); } .b-final { background: var(--green-50); color: var(--green); }
 .b-superseded { background: #EEF1F6; color: var(--muted); text-decoration: line-through; } .b-preview { background: var(--violet-50); color: var(--violet); }
+/* Badge text at WCAG AA (≥ 4.5:1) on its tinted background; the brighter tokens stay for icons and fills. */
+.badge.b-posted, .badge.b-open, .badge.b-final { color: #166534; }
+.badge.b-submitted, .badge.b-warn, .badge.b-under_review { color: #92400E; }
+.badge.b-rejected, .badge.b-block { color: #B91C1C; }
+.badge.b-approved { color: #1D4ED8; } .badge.b-preview { color: #6D28D9; }
 .fs-layout { display: grid; grid-template-columns: 290px minmax(0,1fr); gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .fs-layout { grid-template-columns: 1fr; } }
 .runs { display: flex; flex-direction: column; gap: 6px; max-height: 520px; overflow-y: auto; }

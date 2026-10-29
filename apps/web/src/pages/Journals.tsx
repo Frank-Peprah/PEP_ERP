@@ -147,6 +147,8 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
   const [desc, setDesc] = useState(initial.description ?? '');
   const [ref, setRef] = useState(initial.reference ?? '');
   const [type, setType] = useState(initial.journal_type ?? 'manual');
+  const ADJ = ['accrual', 'prepayment', 'correction'];
+  const [adj, setAdj] = useState<boolean>(initial.is_adjustment ?? ADJ.includes(initial.journal_type ?? 'manual'));
   const [rows, setRows] = useState<Row[]>(initial.lines?.map((l: any) => ({
     account: `${l.account_code} — ${l.account_name}`, description: l.description ?? '',
     debit: Number(l.txn_debit) ? l.txn_debit : '', credit: Number(l.txn_credit) ? l.txn_credit : '' })) ?? [blank(), blank(), blank()]);
@@ -165,7 +167,7 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
   const save = async (submit: boolean) => {
     setBusy(true);
     try {
-      const body = { journalDate: date, description: desc, reference: ref || null, journalType: type,
+      const body = { journalDate: date, description: desc, reference: ref || null, journalType: type, isAdjustment: type === 'opening_balance' ? false : adj,
         lines: used.map((r) => ({ accountId: byLabel.get(r.account.trim())?.id, description: r.description || null, debit: r.debit || null, credit: r.credit || null })),
         ...(initial.id ? { expectedVersion: initial.version } : {}) };
       const j = initial.id ? await api(`${E(c)}/journals/${initial.id}`, { method: 'PUT', body }) : await api(`${E(c)}/journals`, { method: 'POST', body });
@@ -186,8 +188,11 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
             <label className="field" style={{ width: 160 }}>Date<input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
             <label className="field" style={{ flex: 1, minWidth: 260 }}>Description<input className="input" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Plot sales — October" /></label>
             <label className="field" style={{ width: 160 }}>Reference<input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Invoice / deed no." /></label>
-            <label className="field" style={{ width: 170 }}>Type<select className="input" value={type} onChange={(e) => setType(e.target.value)}>
+            <label className="field" style={{ width: 170 }}>Type<select className="input" value={type} onChange={(e) => { setType(e.target.value); setAdj(ADJ.includes(e.target.value)); }}>
               {['manual', 'opening_balance', 'accrual', 'prepayment', 'correction'].map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}</select></label>
+            <label className="field" style={{ width: 170, flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-end', minHeight: 40 }}
+                   title="Adjusting entries (accruals, prepayments, depreciation, audit adjustments) are shown separately in the adjusted trial balance">
+              <input type="checkbox" checked={type !== 'opening_balance' && adj} disabled={type === 'opening_balance'} onChange={(e) => setAdj(e.target.checked)} />Adjusting entry</label>
           </div>
           <datalist id="acct-list">{postable.map((a) => <option key={a.id} value={`${a.code} — ${a.name}`} />)}</datalist>
           <table className="grid-ed">

@@ -12,6 +12,8 @@ export interface JournalInput {
   description: string;
   reference?: string | null;
   journalType?: string;
+  /** Adjusting entry (shown in the Adjustments column of the adjusted trial balance). Default: by type. */
+  isAdjustment?: boolean;
   currency?: string;
   fxRate?: string | number;
   lines: JournalLineInput[];
@@ -20,6 +22,9 @@ export interface JournalInput {
 }
 
 const ALLOWED_TYPES = new Set(['manual', 'opening_balance', 'accrual', 'prepayment', 'recurring', 'fx_revaluation', 'tax_adjustment', 'correction']);
+/** Types that are adjusting entries unless the preparer says otherwise. */
+const ADJUSTING_TYPES = new Set(['accrual', 'prepayment', 'fx_revaluation', 'tax_adjustment', 'correction']);
+const adjusting = (type: string, flag?: boolean) => type !== 'opening_balance' && type !== 'year_end_close' && (typeof flag === 'boolean' ? flag : ADJUSTING_TYPES.has(type));
 
 async function entityRow(tx: Tx | Db, entityId: string) {
   const r = await tx.query('SELECT id, functional_currency, segregation_enabled FROM entities WHERE id = $1', [entityId]);
@@ -101,7 +106,7 @@ export async function listJournals(db: Db, entityId: string, q: { status?: strin
   if (q.status) { params.push(q.status); where += ` AND j.status = $${params.length}`; }
   params.push(Math.min(q.limit ?? 200, 1000));
   const r = await db.query(
-    `SELECT j.id, j.draft_no, j.journal_no, j.journal_type, j.journal_date, j.description, j.reference, j.status,
+    `SELECT j.id, j.draft_no, j.journal_no, j.journal_type, j.is_adjustment, j.journal_date, j.description, j.reference, j.status,
             j.currency, j.version, up.full_name AS prepared_by_name, j.prepared_by, j.reverses_journal_id, j.reversed_by_journal_id,
             COALESCE((SELECT sum(debit) FROM journal_lines WHERE journal_id = j.id),0)::numeric(20,2) AS total_debit,
             COALESCE((SELECT sum(credit) FROM journal_lines WHERE journal_id = j.id),0)::numeric(20,2) AS total_credit
@@ -141,10 +146,11 @@ export async function createDraft(db: Db, scope: EntityScope, actor: Actor, inpu
     await validateAccounts(tx, scope.entityId, lines.map((l) => l.accountId), input.journalDate);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description,
-                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id, is_adjustment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [scope.entityId, type, input.journalDate, period.id, input.reference ?? null, input.description.trim(),
-       currency, fxRate, actor.id, input.idempotencyKey ?? null, internal ? 'system' : 'manual', internal?.closesFinancialYearId ?? null]);
+       currency, fxRate, actor.id, input.idempotencyKey ?? null, internal ? 'system' : 'manual', internal?.closesFinancialYearId ?? null,
+       adjusting(type, internal ? false : input.isAdjustment)]);
     const id = j.rows[0].id;
     await writeLines(tx, id, lines);
     const full = await getJournal(tx, scope.entityId, id);
@@ -178,9 +184,11 @@ export async function updateDraft(db: Db, scope: EntityScope, actor: Actor, id: 
     await tx.query('DELETE FROM journal_lines WHERE journal_id = $1', [id]);
     await tx.query(
       `UPDATE journal_entries SET journal_date=$1, period_id=$2, description=$3, reference=$4, currency=$5, fx_rate=$6,
-              journal_type=$7 WHERE id=$8`,
+              journal_type=$7, is_adjustment=$8 WHERE id=$9`,
       [input.journalDate, period.id, input.description.trim(), input.reference ?? null, currency, fxRate,
-       input.journalType ?? j.journal_type, id]);
+       input.journalType ?? j.journal_type,
+       typeof input.isAdjustment === 'boolean' || input.journalType !== undefined
+         ? adjusting(input.journalType ?? j.journal_type, input.isAdjustment) : j.is_adjustment, id]);
     await writeLines(tx, id, lines);
     const after = await getJournal(tx, scope.entityId, id);
     await audit(tx, { entityId: scope.entityId, actorId: actor.id, action: 'journal.update', objectType: 'journal', objectId: id,
@@ -266,10 +274,10 @@ export async function createReversal(db: Db, scope: EntityScope, actor: Actor, i
     const lines = await tx.query('SELECT * FROM journal_lines WHERE journal_id = $1 ORDER BY line_no', [id]);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description, currency, fx_rate,
-                                    prepared_by, reverses_journal_id, source)
-       VALUES ($1,'reversal',$2,$3,$4,$5,$6,$7,$8,$9,'reversal') RETURNING id`,
+                                    prepared_by, reverses_journal_id, source, is_adjustment)
+       VALUES ($1,'reversal',$2,$3,$4,$5,$6,$7,$8,$9,'reversal',$10) RETURNING id`,
       [scope.entityId, opts.reversalDate, period.id, o.journal_no, `Reversal of ${o.journal_no}: ${opts.reason.trim()}`,
-       o.currency, o.fx_rate, actor.id, id]);
+       o.currency, o.fx_rate, actor.id, id, o.is_adjustment]);
     const newId = j.rows[0].id;
     for (const l of reverseLines(lines.rows)) {
       await tx.query(
