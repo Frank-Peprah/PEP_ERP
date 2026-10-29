@@ -1,0 +1,32 @@
+name: ledger-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ledger
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: ledger
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations and seed
+        run: |
+          for f in supabase/migrations/*.sql supabase/seed.sql; do
+            echo "== $f"; psql -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+      - name: Run ledger invariant tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/ledger_core_test.sql
