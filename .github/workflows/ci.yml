@@ -69,6 +69,7 @@ jobs:
           PORT: '4000'
           PEP_DB_ROLE: pep_app   # same least-privilege role as production
           RATE_LIMIT_AUTH_PER_MIN: '1000'   # journeys sign in many times from one IP
+          RATE_LIMIT_PER_MIN: '20000'       # every journey runs from one IP
       - name: Edge bundle builds
         run: node scripts/build-edge.mjs
       - uses: actions/upload-artifact@v4

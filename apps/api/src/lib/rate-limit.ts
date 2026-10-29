@@ -14,7 +14,8 @@ export function createLimiter(opts: { globalPerMin: number; strictPerMin: number
   const clientIp = (req: FastifyRequest) => String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.ip;
 
   return async function limit(req: FastifyRequest) {
-    if (req.method === 'OPTIONS' || req.url === '/api/health') return;
+    // Only the API is limited; static web files served by the local server are not.
+    if (req.method === 'OPTIONS' || req.url === '/api/health' || !req.url.startsWith('/api/')) return;
     const now = Date.now();
     if (now - lastSweep > 60_000) {                   // keep memory bounded
       for (const [k, b] of buckets) if (b.resetAt <= now) buckets.delete(k);
