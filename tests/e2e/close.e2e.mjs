@@ -1,5 +1,5 @@
 /**
- * Blueprint Phase 1 — Year-end close and adjusted trial balance screens. Desktop 1440 px and phone 390 px, axe on every screen.
+ * Blueprint Phase 1 — Year-end close, adjusted trial balance and recurring journal screens. Desktop 1440 px and phone 390 px, axe on every screen.
  *   E2E_BASE=http://localhost:4000 node tests/e2e/close.e2e.mjs
  */
 import { chromium } from 'playwright';
@@ -59,6 +59,32 @@ for (const [vp, size] of Object.entries(VIEWPORTS)) {
     await page.getByRole('columnheader', { name: 'Adjustments' }).waitFor();
     await page.getByText('Balanced').first().waitFor();
     await axe(page, 'adjusted trial balance'); await noOverflow(page, 'adjusted trial balance');
+    assert(!errors.length, errors.join('; '));
+    await ctx.close();
+  });
+
+  await check(`[${vp}] accountant sets up a monthly rent template and creates the due draft`, async () => {
+    const { page, ctx, errors } = await pageAs('ama@pep.local', size);
+    await page.goto(`${BASE}/trulander/recurring-journals`);
+    await page.getByRole('heading', { name: 'Recurring journals' }).waitFor({ timeout: 20000 });
+    await page.getByRole('button', { name: 'New template' }).click();
+    const name = `Office rent ${vp} ${Date.now()}`;
+    await page.getByLabel('Name').fill(name);
+    await page.getByLabel('Journal description').fill(`Office rent (${vp})`);
+    const accounts = page.getByLabel('Line 1 account');
+    const opts = await accounts.locator('option').allTextContents();
+    const pick = (re) => opts.find((o) => re.test(o));
+    await accounts.selectOption({ label: pick(/rent|expense|admin/i) ?? opts[1] });
+    await page.getByLabel('Line 1 debit').fill('2500');
+    await page.getByLabel('Line 2 account').selectOption({ label: pick(/cash|bank/i) ?? opts[2] });
+    await page.getByLabel('Line 2 credit').fill('2500');
+    await page.getByText('Balanced', { exact: true }).waitFor();
+    await axe(page, 'new recurring journal'); await noOverflow(page, 'new recurring journal');
+    await page.getByRole('button', { name: 'Save template' }).click();
+    await page.getByRole('cell', { name: new RegExp(name) }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Create due draft/ }).click();
+    await page.getByText(/drafts? created/).waitFor({ timeout: 10000 });
+    await axe(page, 'recurring journals'); await noOverflow(page, 'recurring journals');
     assert(!errors.length, errors.join('; '));
     await ctx.close();
   });

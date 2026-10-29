@@ -47,8 +47,8 @@ function parseAmount(raw, currency, field = "amount") {
   if (d.greaterThan("999999999999999999.99")) throw new DomainError("INVALID_AMOUNT", `${field} exceeds maximum`);
   return d;
 }
-function toFunctional(amount, fxRate, functionalCurrency) {
-  return amount.times(fxRate).toDecimalPlaces(precisionOf(functionalCurrency), Decimal.ROUND_HALF_EVEN);
+function toFunctional(amount, fxRate, functionalCurrency2) {
+  return amount.times(fxRate).toDecimalPlaces(precisionOf(functionalCurrency2), Decimal.ROUND_HALF_EVEN);
 }
 function normaliseLines(lines, opts, { requireBalance = true } = {}) {
   if (!Array.isArray(lines) || lines.length < 2) {
@@ -509,7 +509,11 @@ async function listJournals(db, entityId, q) {
 }
 async function createDraft(db, scope, actor, input, internal) {
   requirePerm(scope, "journal.prepare");
-  return withTx(db, async (tx) => {
+  return withTx(db, (tx) => createDraftTx(tx, scope, actor, input, internal));
+}
+async function createDraftTx(tx, scope, actor, input, internal) {
+  requirePerm(scope, "journal.prepare");
+  {
     const ent = await entityRow(tx, scope.entityId);
     const hash = payloadHash(input);
     if (input.idempotencyKey) {
@@ -526,8 +530,10 @@ async function createDraft(db, scope, actor, input, internal) {
         return { ...await getJournal(tx, scope.entityId, ex.rows[0].id), idempotentReplay: true };
       }
     }
-    const type = internal?.journalType ?? input.journalType ?? "manual";
-    if (!internal && !ALLOWED_TYPES.has(type)) throw new DomainError("INVALID_JOURNAL_TYPE", `Journal type ${type} cannot be created manually`);
+    const sys = internal && "journalType" in internal ? internal : null;
+    const rec = internal && "recurringJournalId" in internal ? internal : null;
+    const type = sys?.journalType ?? input.journalType ?? "manual";
+    if (!sys && !ALLOWED_TYPES.has(type)) throw new DomainError("INVALID_JOURNAL_TYPE", `Journal type ${type} cannot be created manually`);
     if (!input.description?.trim()) throw new DomainError("DESCRIPTION_REQUIRED", "Description is required");
     const currency = (input.currency ?? ent.functional_currency).toUpperCase();
     const fxRate = String(input.fxRate ?? 1);
@@ -540,8 +546,9 @@ async function createDraft(db, scope, actor, input, internal) {
     await validateAccounts(tx, scope.entityId, lines.map((l) => l.accountId), input.journalDate);
     const j = await tx.query(
       `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description,
-                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id, is_adjustment)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+                                    currency, fx_rate, prepared_by, idempotency_key, source, closes_financial_year_id, is_adjustment,
+                                    auto_reverse_date, recurring_journal_id, recurring_run_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
       [
         scope.entityId,
         type,
@@ -553,9 +560,12 @@ async function createDraft(db, scope, actor, input, internal) {
         fxRate,
         actor.id,
         input.idempotencyKey ?? null,
-        internal ? "system" : "manual",
-        internal?.closesFinancialYearId ?? null,
-        adjusting(type, internal ? false : input.isAdjustment)
+        sys ? "system" : rec ? "recurring" : "manual",
+        sys?.closesFinancialYearId ?? null,
+        adjusting(type, sys ? false : input.isAdjustment),
+        autoReverse(type, input),
+        rec?.recurringJournalId ?? null,
+        rec?.recurringRunDate ?? null
       ]
     );
     const id = j.rows[0].id;
@@ -570,7 +580,18 @@ async function createDraft(db, scope, actor, input, internal) {
       after: { payload_hash: hash, journal_date: full.journal_date, totals: full.totals, lines: full.lines.length }
     });
     return full;
-  });
+  }
+}
+function autoReverse(type, input) {
+  const d = input.autoReverseDate || null;
+  if (!d) return null;
+  if (["reversal", "year_end_close", "opening_balance"].includes(type)) {
+    throw new DomainError("AUTO_REVERSE_NOT_ALLOWED", "Opening balances, reversals and closing journals cannot reverse automatically");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d <= input.journalDate) {
+    throw new DomainError("INVALID_DATE", "The automatic reversal date must be after the journal date");
+  }
+  return d;
 }
 async function updateDraft(db, scope, actor, id, input) {
   requirePerm(scope, "journal.prepare");
@@ -599,7 +620,7 @@ async function updateDraft(db, scope, actor, id, input) {
     await tx.query("DELETE FROM journal_lines WHERE journal_id = $1", [id]);
     await tx.query(
       `UPDATE journal_entries SET journal_date=$1, period_id=$2, description=$3, reference=$4, currency=$5, fx_rate=$6,
-              journal_type=$7, is_adjustment=$8 WHERE id=$9`,
+              journal_type=$7, is_adjustment=$8, auto_reverse_date=$10 WHERE id=$9`,
       [
         input.journalDate,
         period.id,
@@ -609,7 +630,8 @@ async function updateDraft(db, scope, actor, id, input) {
         fxRate,
         input.journalType ?? j.journal_type,
         typeof input.isAdjustment === "boolean" || input.journalType !== void 0 ? adjusting(input.journalType ?? j.journal_type, input.isAdjustment) : j.is_adjustment,
-        id
+        id,
+        input.autoReverseDate === void 0 ? j.auto_reverse_date ?? null : autoReverse(input.journalType ?? j.journal_type, input)
       ]
     );
     await writeLines(tx, id, lines);
@@ -652,6 +674,14 @@ async function transition(db, scope, actor, id, action, opts = {}) {
       if (full.totals.debit !== full.totals.credit) throw new DomainError("JOURNAL_UNBALANCED", "Functional-currency totals do not balance");
       void totals;
       await validateAccounts(tx, scope.entityId, full.lines.map((l) => l.account_id), j.journal_date);
+      if (j.auto_reverse_date) {
+        const rp = await tx.query(
+          `SELECT name, status FROM accounting_periods WHERE entity_id = $1 AND $2::date BETWEEN start_date AND end_date`,
+          [scope.entityId, j.auto_reverse_date]
+        );
+        if (!rp.rowCount) throw new DomainError("AUTO_REVERSAL_PERIOD_UNAVAILABLE", `No accounting period exists for the automatic reversal on ${j.auto_reverse_date}`);
+        if (rp.rows[0].status !== "open") throw new DomainError("AUTO_REVERSAL_PERIOD_LOCKED", `${rp.rows[0].name} is locked, so the automatic reversal on ${j.auto_reverse_date} cannot post`);
+      }
     }
     const sets = ["status = $1"];
     const params = [to];
@@ -677,17 +707,7 @@ async function transition(db, scope, actor, id, action, opts = {}) {
       add("rejection_reason", opts.reason.trim());
     }
     if (action === "post") {
-      const fy = await tx.query(
-        `SELECT fy.label FROM accounting_periods p JOIN financial_years fy ON fy.id = p.financial_year_id WHERE p.id = $1`,
-        [j.period_id]
-      );
-      const label = fy.rows[0].label;
-      const seq = await tx.query(
-        `INSERT INTO journal_sequences (entity_id, fy_label, last_no) VALUES ($1,$2,1)
-         ON CONFLICT (entity_id, fy_label) DO UPDATE SET last_no = journal_sequences.last_no + 1 RETURNING last_no`,
-        [scope.entityId, label]
-      );
-      add("journal_no", `JV-${label}-${String(seq.rows[0].last_no).padStart(6, "0")}`);
+      add("journal_no", await nextJournalNo(tx, scope.entityId, j.period_id));
       add("posted_by", actor.id);
       add("posted_at", /* @__PURE__ */ new Date());
     }
@@ -704,6 +724,7 @@ async function transition(db, scope, actor, id, action, opts = {}) {
         after: { reversed_by: id }
       });
     }
+    if (action === "post" && j.auto_reverse_date) await postAutoReversal(tx, scope, actor, id);
     const after = await getJournal(tx, scope.entityId, id);
     await audit(tx, {
       entityId: scope.entityId,
@@ -718,6 +739,86 @@ async function transition(db, scope, actor, id, action, opts = {}) {
     return after;
   });
 }
+async function insertReversalDraft(tx, o, r) {
+  const lines = await tx.query("SELECT * FROM journal_lines WHERE journal_id = $1 ORDER BY line_no", [o.id]);
+  const j = await tx.query(
+    `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description, currency, fx_rate,
+                                  prepared_by, reverses_journal_id, source, is_adjustment)
+     VALUES ($1,'reversal',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [o.entity_id, r.date, r.periodId, o.journal_no, r.description, o.currency, o.fx_rate, r.preparedBy, o.id, r.source, o.is_adjustment]
+  );
+  const newId = j.rows[0].id;
+  for (const l of reverseLines(lines.rows)) {
+    await tx.query(
+      `INSERT INTO journal_lines (journal_id, line_no, account_id, description, txn_debit, txn_credit, debit, credit,
+                                  counterparty, dimension_values, source_document_ref)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        newId,
+        l.line_no,
+        l.account_id,
+        l.description,
+        l.txn_debit,
+        l.txn_credit,
+        l.debit,
+        l.credit,
+        l.counterparty,
+        l.dimension_values,
+        l.source_document_ref
+      ]
+    );
+  }
+  return newId;
+}
+async function nextJournalNo(tx, entityId, periodId) {
+  const fy = await tx.query(
+    `SELECT fy.label FROM accounting_periods p JOIN financial_years fy ON fy.id = p.financial_year_id WHERE p.id = $1`,
+    [periodId]
+  );
+  const label = fy.rows[0].label;
+  const seq = await tx.query(
+    `INSERT INTO journal_sequences (entity_id, fy_label, last_no) VALUES ($1,$2,1)
+     ON CONFLICT (entity_id, fy_label) DO UPDATE SET last_no = journal_sequences.last_no + 1 RETURNING last_no`,
+    [entityId, label]
+  );
+  return `JV-${label}-${String(seq.rows[0].last_no).padStart(6, "0")}`;
+}
+async function postAutoReversal(tx, scope, actor, originalId) {
+  const o = (await tx.query("SELECT * FROM journal_entries WHERE id = $1", [originalId])).rows[0];
+  let period;
+  try {
+    period = await periodFor(tx, scope.entityId, o.auto_reverse_date);
+  } catch {
+    throw new DomainError("AUTO_REVERSAL_PERIOD_UNAVAILABLE", `No accounting period exists for the automatic reversal on ${o.auto_reverse_date}`);
+  }
+  if (period.status !== "open") {
+    throw new DomainError("AUTO_REVERSAL_PERIOD_LOCKED", `${period.name} is locked, so the automatic reversal on ${o.auto_reverse_date} cannot post; re-open it or change the reversal date`);
+  }
+  const id = await insertReversalDraft(tx, o, {
+    date: o.auto_reverse_date,
+    periodId: period.id,
+    description: `Automatic reversal of ${o.journal_no}: ${o.description}`,
+    preparedBy: o.prepared_by,
+    source: "auto_reversal"
+  });
+  const now = /* @__PURE__ */ new Date();
+  await tx.query(`UPDATE journal_entries SET status = 'submitted', submitted_at = $2 WHERE id = $1`, [id, now]);
+  await tx.query(`UPDATE journal_entries SET status = 'approved', approved_by = $2, approved_at = $3 WHERE id = $1`, [id, o.approved_by, now]);
+  await tx.query(
+    `UPDATE journal_entries SET status = 'posted', journal_no = $2, posted_by = $3, posted_at = $4 WHERE id = $1`,
+    [id, await nextJournalNo(tx, scope.entityId, period.id), actor.id, now]
+  );
+  await tx.query("UPDATE journal_entries SET reversed_by_journal_id = $1 WHERE id = $2", [id, originalId]);
+  await audit(tx, {
+    entityId: scope.entityId,
+    actorId: actor.id,
+    action: "journal.auto_reversed",
+    objectType: "journal",
+    objectId: originalId,
+    after: { reversed_by: id, reversal_date: o.auto_reverse_date }
+  });
+  return id;
+}
 async function createReversal(db, scope, actor, id, opts) {
   requirePerm(scope, "journal.prepare");
   if (!opts.reason?.trim()) throw new DomainError("REASON_REQUIRED", "A reason is required for a reversal");
@@ -731,45 +832,13 @@ async function createReversal(db, scope, actor, id, opts) {
     if (opts.reversalDate < o.journal_date) throw new DomainError("INVALID_DATE", "Reversal date cannot precede the original journal date");
     const period = await periodFor(tx, scope.entityId, opts.reversalDate);
     if (period.status !== "open") throw new DomainError("PERIOD_LOCKED", `Period ${period.name} is locked`);
-    const lines = await tx.query("SELECT * FROM journal_lines WHERE journal_id = $1 ORDER BY line_no", [id]);
-    const j = await tx.query(
-      `INSERT INTO journal_entries (entity_id, journal_type, journal_date, period_id, reference, description, currency, fx_rate,
-                                    prepared_by, reverses_journal_id, source, is_adjustment)
-       VALUES ($1,'reversal',$2,$3,$4,$5,$6,$7,$8,$9,'reversal',$10) RETURNING id`,
-      [
-        scope.entityId,
-        opts.reversalDate,
-        period.id,
-        o.journal_no,
-        `Reversal of ${o.journal_no}: ${opts.reason.trim()}`,
-        o.currency,
-        o.fx_rate,
-        actor.id,
-        id,
-        o.is_adjustment
-      ]
-    );
-    const newId = j.rows[0].id;
-    for (const l of reverseLines(lines.rows)) {
-      await tx.query(
-        `INSERT INTO journal_lines (journal_id, line_no, account_id, description, txn_debit, txn_credit, debit, credit,
-                                    counterparty, dimension_values, source_document_ref)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [
-          newId,
-          l.line_no,
-          l.account_id,
-          l.description,
-          l.txn_debit,
-          l.txn_credit,
-          l.debit,
-          l.credit,
-          l.counterparty,
-          l.dimension_values,
-          l.source_document_ref
-        ]
-      );
-    }
+    const newId = await insertReversalDraft(tx, o, {
+      date: opts.reversalDate,
+      periodId: period.id,
+      description: `Reversal of ${o.journal_no}: ${opts.reason.trim()}`,
+      preparedBy: actor.id,
+      source: "reversal"
+    });
     await audit(tx, {
       entityId: scope.entityId,
       actorId: actor.id,
@@ -2148,8 +2217,196 @@ async function finaliseClose(db, scope, actor, fyId) {
   });
 }
 
+// apps/api/src/services/recurring.ts
+var STEP = { monthly: 1, quarterly: 3, semiannually: 6, annually: 12 };
+var TYPES = /* @__PURE__ */ new Set(["manual", "accrual", "prepayment", "recurring"]);
+var MAX_RUNS_PER_GENERATE = 36;
+var ISO = /^\d{4}-\d{2}-\d{2}$/;
+var pad = (n) => String(n).padStart(2, "0");
+var lastDay = (y, m0) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+function runDate(start, frequency, monthEnd, k) {
+  const [y, m, d] = start.split("-").map(Number);
+  const total = m - 1 + STEP[frequency] * k;
+  const yy = y + Math.floor(total / 12), mm = total % 12;
+  const day = monthEnd ? lastDay(yy, mm) : Math.min(d, lastDay(yy, mm));
+  return `${yy}-${pad(mm + 1)}-${pad(day)}`;
+}
+function validateShape(input, functionalCurrency2) {
+  if (!input.name?.trim()) throw new DomainError("NAME_REQUIRED", "Give the recurring journal a name");
+  if (!input.description?.trim()) throw new DomainError("DESCRIPTION_REQUIRED", "Description is required");
+  if (!ISO.test(input.startDate ?? "")) throw new DomainError("INVALID_DATE", "Start date must be YYYY-MM-DD");
+  if (input.endDate && (!ISO.test(input.endDate) || input.endDate < input.startDate)) {
+    throw new DomainError("INVALID_DATE", "End date must be on or after the start date");
+  }
+  const frequency = input.frequency ?? "monthly";
+  if (!(frequency in STEP)) throw new DomainError("INVALID_FREQUENCY", "Frequency must be monthly, quarterly, semiannually or annually");
+  const type = input.journalType ?? "recurring";
+  if (!TYPES.has(type)) throw new DomainError("INVALID_JOURNAL_TYPE", `Recurring journals can be of type ${[...TYPES].join(", ")}`);
+  const { lines } = normaliseLines(input.lines, { txnCurrency: functionalCurrency2, functionalCurrency: functionalCurrency2, fxRate: 1 }, { requireBalance: true });
+  const stored = lines.map((l) => ({
+    accountId: l.accountId,
+    description: l.description,
+    debit: l.debit.gt(0) ? l.debit.toFixed(2) : null,
+    credit: l.credit.gt(0) ? l.credit.toFixed(2) : null
+  }));
+  return { frequency, type, stored };
+}
+var COLS = `r.id, r.name, r.description, r.reference, r.journal_type, r.is_adjustment, r.auto_reverse, r.frequency, r.month_end,
+  r.start_date, r.end_date, r.runs_generated, r.next_run_date, r.status, r.lines, r.version, r.created_at,
+  u.full_name AS created_by_name,
+  (SELECT sum((l->>'debit')::numeric) FROM jsonb_array_elements(r.lines) l)::numeric(20,2) AS amount,
+  (SELECT json_build_object('id', j.id, 'draft_no', j.draft_no, 'journal_no', j.journal_no, 'status', j.status, 'date', j.journal_date)
+     FROM journal_entries j WHERE j.recurring_journal_id = r.id ORDER BY j.recurring_run_date DESC LIMIT 1) AS last_journal`;
+async function listRecurring(db, scope) {
+  requirePerm(scope, "journal.read");
+  const r = await db.query(
+    `SELECT ${COLS} FROM recurring_journals r JOIN users u ON u.id = r.created_by
+      WHERE r.entity_id = $1 ORDER BY r.status, r.next_run_date NULLS LAST, r.name`,
+    [scope.entityId]
+  );
+  return r.rows;
+}
+async function functionalCurrency(db, entityId) {
+  return (await db.query("SELECT functional_currency FROM entities WHERE id = $1", [entityId])).rows[0].functional_currency;
+}
+async function createRecurring(db, scope, actor, input) {
+  requirePerm(scope, "journal.prepare");
+  const { frequency, type, stored } = validateShape(input, await functionalCurrency(db, scope.entityId));
+  return withTx(db, async (tx) => {
+    await validateAccounts(tx, scope.entityId, stored.map((l) => l.accountId), input.startDate);
+    const dup = await tx.query("SELECT 1 FROM recurring_journals WHERE entity_id = $1 AND lower(name) = lower($2)", [scope.entityId, input.name.trim()]);
+    if (dup.rowCount) throw new DomainError("NAME_TAKEN", `A recurring journal called "${input.name.trim()}" already exists`);
+    const r = await tx.query(
+      `INSERT INTO recurring_journals (entity_id, name, description, reference, journal_type, is_adjustment, auto_reverse,
+                                       frequency, month_end, start_date, end_date, next_run_date, lines, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10,$12,$13) RETURNING id`,
+      [
+        scope.entityId,
+        input.name.trim(),
+        input.description.trim(),
+        input.reference ?? null,
+        type,
+        input.isAdjustment ?? (type === "accrual" || type === "prepayment"),
+        !!input.autoReverse,
+        frequency,
+        !!input.monthEnd,
+        input.monthEnd ? runDate(input.startDate, frequency, true, 0) : input.startDate,
+        input.endDate ?? null,
+        JSON.stringify(stored),
+        actor.id
+      ]
+    );
+    const id = r.rows[0].id;
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: "recurring.create",
+      objectType: "recurring_journal",
+      objectId: id,
+      after: { name: input.name.trim(), frequency, start: input.startDate, end: input.endDate ?? null, lines: stored.length }
+    });
+    return (await tx.query(`SELECT ${COLS} FROM recurring_journals r JOIN users u ON u.id = r.created_by WHERE r.id = $1`, [id])).rows[0];
+  });
+}
+async function setRecurringStatus(db, scope, actor, id, status) {
+  requirePerm(scope, "journal.prepare");
+  if (!["active", "paused", "ended"].includes(status)) throw new DomainError("INVALID_STATUS", "Status must be active, paused or ended");
+  return withTx(db, async (tx) => {
+    const cur = await tx.query("SELECT * FROM recurring_journals WHERE entity_id = $1 AND id = $2 FOR UPDATE", [scope.entityId, id]);
+    if (!cur.rowCount) throw new DomainError("NOT_FOUND", "Recurring journal not found");
+    const t = cur.rows[0];
+    if (t.status === "ended") throw new DomainError("RECURRING_ENDED", "This recurring journal has ended; create a new one");
+    await tx.query(
+      `UPDATE recurring_journals SET status = $2::recurring_status, next_run_date = CASE WHEN $2::recurring_status = 'ended' THEN NULL ELSE next_run_date END,
+              updated_at = now(), version = version + 1 WHERE id = $1`,
+      [id, status]
+    );
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: `recurring.${status === "active" ? "resume" : status === "paused" ? "pause" : "end"}`,
+      objectType: "recurring_journal",
+      objectId: id,
+      before: { status: t.status },
+      after: { status }
+    });
+    return { id, status };
+  });
+}
+async function dayAfterPeriod(tx, entityId, date) {
+  const r = await tx.query(
+    `SELECT (end_date + 1)::text AS d FROM accounting_periods WHERE entity_id = $1 AND $2::date BETWEEN start_date AND end_date`,
+    [entityId, date]
+  );
+  return r.rows[0]?.d ?? null;
+}
+async function generateDue(db, scope, actor, asOf) {
+  requirePerm(scope, "journal.prepare");
+  const until = asOf ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (!ISO.test(until)) throw new DomainError("INVALID_DATE", "asOf must be YYYY-MM-DD");
+  const due = await db.query(
+    `SELECT id FROM recurring_journals WHERE entity_id = $1 AND status = 'active' AND next_run_date <= $2 ORDER BY next_run_date, name`,
+    [scope.entityId, until]
+  );
+  const created = [];
+  const skipped = [];
+  for (const { id } of due.rows) {
+    for (let n = 0; n < MAX_RUNS_PER_GENERATE; n++) {
+      try {
+        const out = await withTx(db, async (tx) => {
+          const t = (await tx.query("SELECT * FROM recurring_journals WHERE id = $1 FOR UPDATE", [id])).rows[0];
+          if (t.status !== "active" || !t.next_run_date || t.next_run_date > until) return null;
+          const date = t.next_run_date;
+          const reverseOn = t.auto_reverse ? await dayAfterPeriod(tx, scope.entityId, date) : null;
+          const j = await createDraftTx(tx, scope, actor, {
+            journalDate: date,
+            description: t.description,
+            reference: t.reference,
+            journalType: t.journal_type,
+            isAdjustment: t.is_adjustment,
+            autoReverseDate: reverseOn,
+            lines: t.lines
+          }, { recurringJournalId: t.id, recurringRunDate: date });
+          const k = t.runs_generated + 1;
+          const next = runDate(t.start_date, t.frequency, t.month_end, k);
+          const ended = t.end_date && next > t.end_date;
+          await tx.query(
+            `UPDATE recurring_journals SET runs_generated = $2, next_run_date = $3, status = $4, updated_at = now(), version = version + 1
+              WHERE id = $1`,
+            [id, k, ended ? null : next, ended ? "ended" : "active"]
+          );
+          await audit(tx, {
+            entityId: scope.entityId,
+            actorId: actor.id,
+            action: "recurring.generate",
+            objectType: "recurring_journal",
+            objectId: id,
+            after: { run_date: date, journal_id: j.id, draft_no: j.draft_no, next: ended ? null : next }
+          });
+          return {
+            recurringJournalId: id,
+            name: t.name,
+            runDate: date,
+            journalId: j.id,
+            draftNo: j.draft_no,
+            autoReverseDate: reverseOn,
+            totals: j.totals
+          };
+        });
+        if (!out) break;
+        created.push(out);
+      } catch (e) {
+        const t = (await db.query("SELECT name, next_run_date FROM recurring_journals WHERE id = $1", [id])).rows[0];
+        skipped.push({ recurringJournalId: id, name: t.name, runDate: t.next_run_date, code: e.code ?? "ERROR", message: e.message });
+        break;
+      }
+    }
+  }
+  return { asOf: until, created, skipped };
+}
+
 // apps/api/src/services/health.ts
-var API_VERSION = "0.5.1-dev";
+var API_VERSION = "0.5.2-dev";
 async function systemHealth(db, scope) {
   if (!scope.permissions.has("audit.read") && !scope.permissions.has("users.manage")) {
     throw new DomainError("FORBIDDEN", "System health needs audit.read or users.manage");
@@ -2354,6 +2611,8 @@ var STATUS = {
   STALE_VERSION: 409,
   IDEMPOTENCY_CONFLICT: 409,
   ALREADY_REVERSED: 409,
+  NAME_TAKEN: 409,
+  RECURRING_ENDED: 409,
   ACCOUNT_HAS_ACTIVITY: 409,
   REFERENCED: 409,
   POSTED_JOURNAL_IMMUTABLE: 409,
@@ -2519,6 +2778,13 @@ function buildApp(db, opts = {}) {
     return generateClose(db, req.scope, req.actor, req.params.id);
   });
   app2.post(`${E}/financial-years/:id/close/finalise`, { preHandler: scoped }, async (req) => finaliseClose(db, req.scope, req.actor, req.params.id));
+  app2.get(`${E}/recurring-journals`, { preHandler: scoped }, async (req) => listRecurring(db, req.scope));
+  app2.post(`${E}/recurring-journals`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return createRecurring(db, req.scope, req.actor, req.body);
+  });
+  app2.post(`${E}/recurring-journals/:id/status`, { preHandler: scoped }, async (req) => setRecurringStatus(db, req.scope, req.actor, req.params.id, req.body?.status));
+  app2.post(`${E}/recurring-journals/generate`, { preHandler: scoped }, async (req) => generateDue(db, req.scope, req.actor, req.body?.asOf));
   app2.get(`${E}/trial-balance`, { preHandler: scoped }, async (req) => {
     const q = req.query;
     return trialBalance(db, req.scope, {
