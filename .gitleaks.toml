@@ -1,0 +1,17 @@
+# Secret-scan configuration (CI: gitleaks). Defaults stay on; one narrow exception:
+# Supabase *publishable* keys (sb_publishable_…) are public by design: they ship to every browser
+# that loads the web app and grant nothing beyond what Auth, MFA, the API and RLS allow.
+# Secret keys (sb_secret_…), service-role JWTs, passwords and tokens are still reported.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Supabase publishable (client) keys are public by design"
+regexes = ['''sb_publishable_[A-Za-z0-9_-]{20,}''']
+
+# Not in gitleaks' default rules: Supabase server-side secret keys must never be committed.
+[[rules]]
+id = "supabase-secret-key"
+description = "Supabase secret (server) key"
+regex = '''sb_secret_[A-Za-z0-9_-]{20,}'''
+keywords = ["sb_secret_"]
