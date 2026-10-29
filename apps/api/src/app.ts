@@ -13,6 +13,7 @@ import * as FS from './services/statements.js';
 import * as U from './services/users.js';
 import * as YC from './services/close.js';
 import * as RJ from './services/recurring.js';
+import * as FX from './services/currencies.js';
 import { API_VERSION, systemHealth } from './services/health.js';
 import { dashboard } from './services/dashboard.js';
 
@@ -198,6 +199,16 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
   });
   app.post(`${E}/financial-years/:id/close/finalise`, { preHandler: scoped }, async (req) =>
     YC.finaliseClose(db, req.scope!, req.actor!, (req.params as P).id));
+  // Currencies and exchange rates (Blueprint Phase 1, decision D5)
+  app.get(`${E}/currencies`, { preHandler: scoped }, async (req) => FX.listCurrencies(db, req.scope!));
+  app.post(`${E}/currencies`, { preHandler: scoped }, async (req) => FX.enableCurrency(db, req.scope!, req.actor!, (req.body as any)?.code));
+  app.get(`${E}/exchange-rates`, { preHandler: scoped }, async (req) => FX.listRates(db, req.scope!, (req.query as any).currency));
+  app.get(`${E}/exchange-rates/lookup`, { preHandler: scoped }, async (req) =>
+    FX.lookupRate(db, req.scope!, (req.query as any).currency, (req.query as any).date));
+  app.post(`${E}/exchange-rates`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return FX.recordRate(db, req.scope!, req.actor!, req.body as any);
+  });
   // Recurring journals (Blueprint Phase 1)
   app.get(`${E}/recurring-journals`, { preHandler: scoped }, async (req) => RJ.listRecurring(db, req.scope!));
   app.post(`${E}/recurring-journals`, { preHandler: scoped }, async (req, reply) => {

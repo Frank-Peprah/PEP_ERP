@@ -34,6 +34,22 @@ async function entityRow(tx: Tx | Db, entityId: string) {
   return r.rows[0] as { id: string; functional_currency: string; segregation_enabled: boolean };
 }
 
+/**
+ * Exchange rate for a journal: 1 for the functional currency; otherwise the rate entered, or the rate in
+ * force on the journal date (decision D5: Bank of Ghana reference, recorded under Currencies).
+ */
+async function resolveRate(tx: Tx, entityId: string, functional: string, currency: string, date: string, entered?: string | number) {
+  if (currency === functional) return String(entered ?? 1);
+  const e = (await tx.query('SELECT enabled_currencies FROM entities WHERE id = $1', [entityId])).rows[0];
+  if (!(e.enabled_currencies as string[]).includes(currency)) {
+    throw new DomainError('CURRENCY_NOT_ENABLED', `${currency} is not enabled for this entity. A controller can enable it under Currencies.`);
+  }
+  if (entered !== undefined && entered !== null && String(entered).trim() !== '') return String(entered);
+  const r = await tx.query('SELECT fx_rate_on($1, $2, $3) AS rate', [entityId, currency, date]);
+  if (!r.rows[0].rate) throw new DomainError('FX_RATE_REQUIRED', `No ${currency} rate is recorded on or before ${date}. Record one under Currencies or enter the rate.`);
+  return String(r.rows[0].rate);
+}
+
 async function periodFor(tx: Tx, entityId: string, date: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new DomainError('INVALID_DATE', 'journalDate must be YYYY-MM-DD');
   const r = await tx.query(
@@ -152,7 +168,7 @@ export async function createDraftTx(tx: Tx, scope: EntityScope, actor: Actor, in
     if (!sys && !ALLOWED_TYPES.has(type)) throw new DomainError('INVALID_JOURNAL_TYPE', `Journal type ${type} cannot be created manually`);
     if (!input.description?.trim()) throw new DomainError('DESCRIPTION_REQUIRED', 'Description is required');
     const currency = (input.currency ?? ent.functional_currency).toUpperCase();
-    const fxRate = String(input.fxRate ?? 1);
+    const fxRate = await resolveRate(tx, scope.entityId, ent.functional_currency, currency, input.journalDate, input.fxRate);
     const period = await periodFor(tx, scope.entityId, input.journalDate);
     const { lines } = normaliseLines(input.lines, { txnCurrency: currency, functionalCurrency: ent.functional_currency, fxRate },
       { requireBalance: false });
@@ -202,7 +218,8 @@ export async function updateDraft(db: Db, scope: EntityScope, actor: Actor, id: 
     if (j.journal_type === 'reversal') throw new DomainError('JOURNAL_NOT_EDITABLE', 'Reversal journals cannot be edited; reject and re-create');
     if (j.journal_type === 'year_end_close') throw new DomainError('JOURNAL_NOT_EDITABLE', 'Closing journals are computed by the system; reject it and generate the close again');
     const currency = (input.currency ?? j.currency).toUpperCase();
-    const fxRate = String(input.fxRate ?? j.fx_rate);
+    const fxRate = input.fxRate === undefined && currency === j.currency && input.journalDate === j.journal_date ? String(j.fx_rate)
+      : await resolveRate(tx, scope.entityId, ent.functional_currency, currency, input.journalDate, input.fxRate);
     const period = await periodFor(tx, scope.entityId, input.journalDate);
     const { lines } = normaliseLines(input.lines, { txnCurrency: currency, functionalCurrency: ent.functional_currency, fxRate },
       { requireBalance: false });

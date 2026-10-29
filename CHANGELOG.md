@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3-dev — 2026-10-29 — Blueprint Phase 1: currencies and exchange rates (decision D5)
+- **FX-ready, GHS-only by default** (migration 012): entities post only in their functional currency or a currency a
+  controller enables (database-enforced); functional-currency journals must use a rate of 1.
+- **Exchange rates**: Bank of Ghana reference by default, bank or manual with a reason; append-only; the rate in force
+  on the journal date is applied automatically. New screen **Currencies** (Accounting); journal editor shows currency
+  and rate only once a currency is enabled.
+- IAS 21 revaluation and FX gains/losses deferred until an entity enables a currency.
+
 ## 0.5.2-dev — 2026-10-29 — Blueprint Phase 1: recurring and auto-reversing journals
 - **Auto-reversing journals** (migration 011): set "Reverse automatically on" on any journal; posting it posts the
   reversal on that date in the same transaction. Missing or locked reversal period blocks submission early.

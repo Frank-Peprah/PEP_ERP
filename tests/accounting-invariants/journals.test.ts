@@ -73,6 +73,7 @@ describe('Journal posting invariants', () => {
 
   it('#20 FX: translation rounding difference is surfaced, never silently absorbed', async () => {
     // USD 0.01 + 0.01 vs 0.02 balances in USD; at 15.555: 0.16 + 0.16 = 0.32 Dr vs 0.31 Cr in GHS.
+    await c.call('frank', 'POST', `/api/entities/${c.T}/currencies`, { code: 'USD' });
     const d = await c.call('ama', 'POST', `/api/entities/${c.T}/journals`, base({
       currency: 'USD', fxRate: '15.555',
       lines: [{ accountId: rent, debit: '0.01' }, { accountId: rent, debit: '0.01' }, { accountId: bank, credit: '0.02' }] }));

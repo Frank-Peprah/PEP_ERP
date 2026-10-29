@@ -405,6 +405,17 @@ async function entityRow(tx, entityId) {
   if (!r.rowCount) throw new DomainError("NOT_FOUND", "Entity not found");
   return r.rows[0];
 }
+async function resolveRate(tx, entityId, functional, currency, date, entered) {
+  if (currency === functional) return String(entered ?? 1);
+  const e = (await tx.query("SELECT enabled_currencies FROM entities WHERE id = $1", [entityId])).rows[0];
+  if (!e.enabled_currencies.includes(currency)) {
+    throw new DomainError("CURRENCY_NOT_ENABLED", `${currency} is not enabled for this entity. A controller can enable it under Currencies.`);
+  }
+  if (entered !== void 0 && entered !== null && String(entered).trim() !== "") return String(entered);
+  const r = await tx.query("SELECT fx_rate_on($1, $2, $3) AS rate", [entityId, currency, date]);
+  if (!r.rows[0].rate) throw new DomainError("FX_RATE_REQUIRED", `No ${currency} rate is recorded on or before ${date}. Record one under Currencies or enter the rate.`);
+  return String(r.rows[0].rate);
+}
 async function periodFor(tx, entityId, date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? "")) throw new DomainError("INVALID_DATE", "journalDate must be YYYY-MM-DD");
   const r = await tx.query(
@@ -536,7 +547,7 @@ async function createDraftTx(tx, scope, actor, input, internal) {
     if (!sys && !ALLOWED_TYPES.has(type)) throw new DomainError("INVALID_JOURNAL_TYPE", `Journal type ${type} cannot be created manually`);
     if (!input.description?.trim()) throw new DomainError("DESCRIPTION_REQUIRED", "Description is required");
     const currency = (input.currency ?? ent.functional_currency).toUpperCase();
-    const fxRate = String(input.fxRate ?? 1);
+    const fxRate = await resolveRate(tx, scope.entityId, ent.functional_currency, currency, input.journalDate, input.fxRate);
     const period = await periodFor(tx, scope.entityId, input.journalDate);
     const { lines } = normaliseLines(
       input.lines,
@@ -608,7 +619,7 @@ async function updateDraft(db, scope, actor, id, input) {
     if (j.journal_type === "reversal") throw new DomainError("JOURNAL_NOT_EDITABLE", "Reversal journals cannot be edited; reject and re-create");
     if (j.journal_type === "year_end_close") throw new DomainError("JOURNAL_NOT_EDITABLE", "Closing journals are computed by the system; reject it and generate the close again");
     const currency = (input.currency ?? j.currency).toUpperCase();
-    const fxRate = String(input.fxRate ?? j.fx_rate);
+    const fxRate = input.fxRate === void 0 && currency === j.currency && input.journalDate === j.journal_date ? String(j.fx_rate) : await resolveRate(tx, scope.entityId, ent.functional_currency, currency, input.journalDate, input.fxRate);
     const period = await periodFor(tx, scope.entityId, input.journalDate);
     const { lines } = normaliseLines(
       input.lines,
@@ -2405,8 +2416,104 @@ async function generateDue(db, scope, actor, asOf) {
   return { asOf: until, created, skipped };
 }
 
+// apps/api/src/services/currencies.ts
+var CODE = /^[A-Z]{3}$/;
+var ISO2 = /^\d{4}-\d{2}-\d{2}$/;
+var SOURCES = /* @__PURE__ */ new Set(["bog_reference", "bank", "manual"]);
+async function listCurrencies(db, scope) {
+  requirePerm(scope, "entity.read");
+  const e = (await db.query("SELECT functional_currency, enabled_currencies FROM entities WHERE id = $1", [scope.entityId])).rows[0];
+  const latest = await db.query(
+    `SELECT DISTINCT ON (currency) currency, rate_date, rate, source, reason, created_at
+       FROM exchange_rates WHERE entity_id = $1 ORDER BY currency, rate_date DESC, id DESC`,
+    [scope.entityId]
+  );
+  const by = new Map(latest.rows.map((r) => [r.currency.trim(), r]));
+  return {
+    functional: e.functional_currency,
+    enabled: e.enabled_currencies.map((c) => ({ code: c, latestRate: by.get(c) ?? null }))
+  };
+}
+async function enableCurrency(db, scope, actor, code) {
+  requirePerm(scope, "currencies.manage");
+  const c = String(code ?? "").trim().toUpperCase();
+  if (!CODE.test(c)) throw new DomainError("INVALID_CURRENCY", "Use a three-letter ISO currency code, for example USD");
+  return withTx(db, async (tx) => {
+    const e = (await tx.query("SELECT functional_currency, enabled_currencies FROM entities WHERE id = $1 FOR UPDATE", [scope.entityId])).rows[0];
+    if (c === e.functional_currency) throw new DomainError("INVALID_CURRENCY", `${c} is the functional currency`);
+    if (e.enabled_currencies.includes(c)) return { code: c, enabled: true };
+    await tx.query("UPDATE entities SET enabled_currencies = array_append(enabled_currencies, $2::char(3)) WHERE id = $1", [scope.entityId, c]);
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: "currency.enable",
+      objectType: "entity",
+      objectId: scope.entityId,
+      after: { currency: c }
+    });
+    return { code: c, enabled: true };
+  });
+}
+async function listRates(db, scope, currency) {
+  requirePerm(scope, "entity.read");
+  const r = await db.query(
+    `SELECT x.id, x.currency, x.rate_date, x.rate, x.source, x.reason, x.created_at, u.full_name AS created_by_name
+       FROM exchange_rates x JOIN users u ON u.id = x.created_by
+      WHERE x.entity_id = $1 AND ($2::text IS NULL OR x.currency = $2)
+      ORDER BY x.rate_date DESC, x.id DESC LIMIT 500`,
+    [scope.entityId, currency ? currency.toUpperCase() : null]
+  );
+  return r.rows.map((x) => ({ ...x, currency: x.currency.trim() }));
+}
+async function recordRate(db, scope, actor, input) {
+  requirePerm(scope, "currencies.manage");
+  const c = String(input.currency ?? "").toUpperCase();
+  const source = input.source ?? "bog_reference";
+  if (!ISO2.test(input.rateDate ?? "")) throw new DomainError("INVALID_DATE", "Rate date must be YYYY-MM-DD");
+  if (!SOURCES.has(source)) throw new DomainError("INVALID_SOURCE", "Source must be bog_reference, bank or manual");
+  let rate;
+  try {
+    rate = new Decimal(String(input.rate));
+  } catch {
+    throw new DomainError("INVALID_FX_RATE", "Rate must be a number");
+  }
+  if (!rate.isFinite() || rate.lte(0)) throw new DomainError("INVALID_FX_RATE", "Rate must be greater than zero");
+  if (source !== "bog_reference" && !input.reason?.trim()) {
+    throw new DomainError("REASON_REQUIRED", "Say why a bank or manual rate is used instead of the Bank of Ghana reference rate");
+  }
+  return withTx(db, async (tx) => {
+    const e = (await tx.query("SELECT functional_currency, enabled_currencies FROM entities WHERE id = $1", [scope.entityId])).rows[0];
+    if (!e.enabled_currencies.includes(c)) throw new DomainError("CURRENCY_NOT_ENABLED", `${c} is not enabled for this entity`);
+    const r = await tx.query(
+      `INSERT INTO exchange_rates (entity_id, currency, rate_date, rate, source, reason, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, currency, rate_date, rate, source, reason, created_at`,
+      [scope.entityId, c, input.rateDate, rate.toFixed(8), source, input.reason?.trim() || null, actor.id]
+    );
+    await audit(tx, {
+      entityId: scope.entityId,
+      actorId: actor.id,
+      action: "fx_rate.record",
+      objectType: "exchange_rate",
+      objectId: String(r.rows[0].id),
+      after: { currency: c, date: input.rateDate, rate: rate.toFixed(8), source },
+      reason: input.reason?.trim() || null
+    });
+    return { ...r.rows[0], currency: c };
+  });
+}
+async function rateOn(db, entityId, currency, date) {
+  const r = await db.query("SELECT fx_rate_on($1, $2, $3) AS rate", [entityId, currency, date]);
+  return r.rows[0].rate ?? null;
+}
+async function lookupRate(db, scope, currency, date) {
+  requirePerm(scope, "entity.read");
+  if (!ISO2.test(date ?? "")) throw new DomainError("INVALID_DATE", "date must be YYYY-MM-DD");
+  const c = String(currency ?? "").toUpperCase();
+  return { currency: c, date, rate: await rateOn(db, scope.entityId, c, date) };
+}
+
 // apps/api/src/services/health.ts
-var API_VERSION = "0.5.2-dev";
+var API_VERSION = "0.5.3-dev";
 async function systemHealth(db, scope) {
   if (!scope.permissions.has("audit.read") && !scope.permissions.has("users.manage")) {
     throw new DomainError("FORBIDDEN", "System health needs audit.read or users.manage");
@@ -2778,6 +2885,14 @@ function buildApp(db, opts = {}) {
     return generateClose(db, req.scope, req.actor, req.params.id);
   });
   app2.post(`${E}/financial-years/:id/close/finalise`, { preHandler: scoped }, async (req) => finaliseClose(db, req.scope, req.actor, req.params.id));
+  app2.get(`${E}/currencies`, { preHandler: scoped }, async (req) => listCurrencies(db, req.scope));
+  app2.post(`${E}/currencies`, { preHandler: scoped }, async (req) => enableCurrency(db, req.scope, req.actor, req.body?.code));
+  app2.get(`${E}/exchange-rates`, { preHandler: scoped }, async (req) => listRates(db, req.scope, req.query.currency));
+  app2.get(`${E}/exchange-rates/lookup`, { preHandler: scoped }, async (req) => lookupRate(db, req.scope, req.query.currency, req.query.date));
+  app2.post(`${E}/exchange-rates`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return recordRate(db, req.scope, req.actor, req.body);
+  });
   app2.get(`${E}/recurring-journals`, { preHandler: scoped }, async (req) => listRecurring(db, req.scope));
   app2.post(`${E}/recurring-journals`, { preHandler: scoped }, async (req, reply) => {
     reply.status(201);
