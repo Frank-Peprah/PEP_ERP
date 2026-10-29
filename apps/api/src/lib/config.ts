@@ -4,7 +4,12 @@
  */
 import type { Db } from './db.js';
 
-export const CONFIG_KEYS = ['AUTH_SECRET', 'STAGING_ACCESS_CODE', 'CORS_ORIGIN'] as const;
+export const CONFIG_KEYS = [
+  'AUTH_SECRET', 'STAGING_ACCESS_CODE', 'CORS_ORIGIN',
+  // Supabase Auth (Blueprint Phase 0): project URL (JWKS discovery), optional legacy HS256 secret,
+  // and whether finance access requires a two-step-verified session (default: required).
+  'SUPABASE_URL', 'SUPABASE_JWT_SECRET', 'REQUIRE_MFA',
+] as const;
 export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 let fromDb: Partial<Record<ConfigKey, string>> = {};

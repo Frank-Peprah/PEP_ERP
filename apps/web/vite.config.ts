@@ -7,7 +7,9 @@ import tailwindcss from '@tailwindcss/vite';
 // Content security policy (blueprint § Security): only our own scripts, styles and fonts; network calls only
 // to this origin and the API origin. Hosts that can set headers (SiteGround .htaccess) repeat it as a header.
 function csp(): Plugin {
-  const api = process.env.VITE_API_BASE ? new URL(process.env.VITE_API_BASE).origin : '';
+  const origins = [process.env.VITE_API_BASE, process.env.VITE_SUPABASE_URL]
+    .filter(Boolean).map((u) => new URL(u as string).origin);
+  const api = [...new Set(origins)].join(' ');
   const policy = [
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "font-src 'self'",
     "img-src 'self' data:", `connect-src 'self'${api ? ` ${api}` : ''}`, "object-src 'none'", "base-uri 'self'", "form-action 'self'",

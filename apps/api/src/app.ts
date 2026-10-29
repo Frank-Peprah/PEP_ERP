@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import { DomainError } from '@pep/accounting-domain';
 import { translatePgError, type Db } from './lib/db.js';
 import { getConfig, loadConfigFromDb } from './lib/config.js';
-import { issueToken, loadActor, loadScope, verifyToken, type Actor, type EntityScope } from './lib/auth.js';
+import { assertMfa, authenticateBearer, issueToken, loadScope, type Actor, type EntityScope } from './lib/auth.js';
 import * as J from './services/journals.js';
 import * as S from './services/setup.js';
 import * as R from './services/reports.js';
@@ -12,7 +12,7 @@ import * as FS from './services/statements.js';
 import { dashboard } from './services/dashboard.js';
 
 const STATUS: Record<string, number> = {
-  AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
+  AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, MFA_REQUIRED: 403, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
   CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409,
   ACCOUNT_HAS_ACTIVITY: 409, REFERENCED: 409, POSTED_JOURNAL_IMMUTABLE: 409, JOURNAL_LINES_IMMUTABLE: 409,
   PERIOD_LOCKED: 423, PERIODS_NOT_LOCKED: 423, STATEMENT_STALE: 409, STATEMENT_HAS_BLOCKING_EXCEPTIONS: 422,
@@ -62,11 +62,11 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
   // ── Auth ──
   const authenticate = async (req: FastifyRequest) => {
     const h = req.headers.authorization;
-    const uid = verifyToken(h?.startsWith('Bearer ') ? h.slice(7) : undefined);
-    req.actor = await loadActor(db, uid);
+    req.actor = await authenticateBearer(db, h?.startsWith('Bearer ') ? h.slice(7) : undefined, { allowDev: !!opts.allowDevLogin });
   };
   const scoped = async (req: FastifyRequest) => {
     await authenticate(req);
+    assertMfa(req.actor!);
     req.scope = await loadScope(db, req.actor!.id, (req.params as { entityId: string }).entityId);
   };
 

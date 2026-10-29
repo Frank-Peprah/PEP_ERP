@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, hasToken, setToken } from '../api';
+import { signOutSupabase } from '../lib/auth';
 
 export interface Me {
-  user: { id: string; email: string; fullName: string };
+  user: { id: string; email: string; fullName: string; method?: 'supabase' | 'dev'; mfa?: boolean };
   entities: { id: string; code: string; legal_name: string; functional_currency: string; roles: string[] }[];
 }
 
@@ -14,6 +15,7 @@ export function useMe() {
 export function useSignOut() {
   const qc = useQueryClient();
   return () => {
+    void signOutSupabase();
     setToken(null);
     try { sessionStorage.removeItem('pep.entity'); } catch { /* storage unavailable */ }
     qc.clear();

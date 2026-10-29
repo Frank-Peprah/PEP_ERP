@@ -4,6 +4,7 @@
  * privileged roles (see SECURITY.md — tracked as a release blocker).
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createRemoteJWKSet, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';
 import type { Db } from './db.js';
 import { DomainError } from '@pep/accounting-domain';
 import { getConfig } from './config.js';
@@ -39,7 +40,64 @@ export function verifyToken(token: string | undefined): string {
   return sub;
 }
 
-export interface Actor { id: string; email: string; fullName: string }
+export interface Actor {
+  id: string; email: string; fullName: string;
+  /** How the caller signed in: Supabase Auth (production path) or the dev/staging demo login. */
+  method?: 'supabase' | 'dev';
+  /** True when the session completed two-step verification (Supabase aal2). */
+  mfa?: boolean;
+}
+
+// ── Supabase Auth ─────────────────────────────────────────────────────────────
+// Access tokens are JWTs. Current Supabase projects sign them with asymmetric keys published at
+// <SUPABASE_URL>/auth/v1/.well-known/jwks.json; legacy projects use a shared HS256 secret.
+// Both are supported; the token's own header decides which check applies (alg must match).
+let jwks: { url: string; set: ReturnType<typeof createRemoteJWKSet> } | null = null;
+function remoteKeys(url: string) {
+  if (!jwks || jwks.url !== url) jwks = { url, set: createRemoteJWKSet(new URL(url), { cooldownDuration: 30_000, cacheMaxAge: 600_000 }) };
+  return jwks.set;
+}
+export const isJwt = (token: string) => token.split('.').length === 3;
+
+export async function verifySupabaseJwt(token: string): Promise<JWTPayload> {
+  const base = getConfig('SUPABASE_URL')?.replace(/\/$/, '');
+  let alg: string | undefined;
+  try { alg = decodeProtectedHeader(token).alg; } catch { throw new DomainError('UNAUTHENTICATED', 'Malformed token'); }
+  const common = { audience: 'authenticated', ...(base ? { issuer: `${base}/auth/v1` } : {}) };
+  try {
+    if (alg === 'HS256') {
+      const secret = getConfig('SUPABASE_JWT_SECRET');
+      if (!secret) throw new DomainError('UNAUTHENTICATED', 'HS256 tokens are not accepted by this server');
+      return (await jwtVerify(token, new TextEncoder().encode(secret), { ...common, algorithms: ['HS256'] })).payload;
+    }
+    if (!base) throw new DomainError('AUTH_NOT_CONFIGURED', 'SUPABASE_URL is not configured on the server');
+    return (await jwtVerify(token, remoteKeys(`${base}/auth/v1/.well-known/jwks.json`), { ...common, algorithms: ['ES256', 'RS256', 'EdDSA'] })).payload;
+  } catch (e) {
+    if (e instanceof DomainError) throw e;
+    throw new DomainError('UNAUTHENTICATED', 'Invalid or expired session');
+  }
+}
+
+/** Resolve a bearer token (Supabase JWT, or the dev/staging HMAC token) to an active PEP user. */
+export async function authenticateBearer(db: Db, token: string | undefined, opts: { allowDev: boolean }): Promise<Actor> {
+  if (!token) throw new DomainError('UNAUTHENTICATED', 'Missing bearer token');
+  if (isJwt(token)) {
+    const claims = await verifySupabaseJwt(token);
+    const r = await db.query('SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active', [claims.sub]);
+    if (!r.rowCount) throw new DomainError('UNAUTHENTICATED', 'This sign-in is not linked to an active PEP user');
+    return { id: r.rows[0].id, email: r.rows[0].email, fullName: r.rows[0].full_name, method: 'supabase', mfa: claims.aal === 'aal2' };
+  }
+  if (!opts.allowDev || process.env.NODE_ENV === 'production') throw new DomainError('UNAUTHENTICATED', 'Unsupported token');
+  const actor = await loadActor(db, verifyToken(token));
+  // Demo sign-in exists only outside production and behind the staging access code.
+  return { ...actor, method: 'dev', mfa: true };
+}
+
+/** Finance data requires a two-step-verified session unless REQUIRE_MFA is explicitly 'false'. */
+export function assertMfa(actor: Actor) {
+  if (getConfig('REQUIRE_MFA') === 'false') return;
+  if (!actor.mfa) throw new DomainError('MFA_REQUIRED', 'Complete two-step verification to access financial data');
+}
 export interface EntityScope { entityId: string; roles: string[]; permissions: Set<string> }
 
 export async function loadActor(db: Db, userId: string): Promise<Actor> {
