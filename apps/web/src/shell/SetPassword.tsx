@@ -28,7 +28,8 @@ export default function SetPassword() {
 
   useEffect(() => {
     const link = takePendingLink();
-    if (!supabaseAuthEnabled || !link) { setErr('Open the link from your invitation or password-reset e-mail to continue.'); setState('error'); return; }
+    // An expired/used link is explained even where Supabase sign-in is not configured.
+    if (!link || (!supabaseAuthEnabled && !link.error)) { setErr('Open the link from your invitation or password-reset e-mail to continue.'); setState('error'); return; }
     setKind(link.type);
     startLinkSession(link).then(() => setState('password')).catch((e) => { setErr(e.message); setState('error'); });
   }, []);
