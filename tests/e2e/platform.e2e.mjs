@@ -95,6 +95,16 @@ for (const [vp, size] of Object.entries(VIEWPORTS)) {
     await ctx.close();
   });
 
+  await check(`[${vp}] system health: administrator sees every integrity check pass`, async () => {
+    const { page, ctx, errors } = await pageAs('admin@pep.local', size);
+    await page.goto(`${BASE}/trulander/system-health`);
+    await page.getByText('All checks pass.').waitFor({ timeout: 15000 });
+    await page.getByText('Audit trail hash chain').waitFor();
+    await axe(page, 'system-health'); await noOverflow(page, 'system-health');
+    assert(!errors.length, errors.join('; '));
+    await ctx.close();
+  });
+
   await check(`[${vp}] expired invitation link lands on a clear message, not a blank page`, async () => {
     const { page, ctx } = await pageAs(null, size);
     await page.goto(`${BASE}/sign-in#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`);

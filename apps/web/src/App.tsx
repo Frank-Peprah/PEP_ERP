@@ -28,6 +28,7 @@ const AuditTrail = lazy(() => import('./pages/AuditTrail'));
 const Statements = lazy(() => import('./pages/Statements'));
 const UsersAccess = lazy(() => import('./modules/admin/UsersAccess'));
 const ApprovalPolicies = lazy(() => import('./modules/admin/ApprovalPolicies'));
+const SystemHealth = lazy(() => import('./modules/admin/SystemHealth'));
 const SetPassword = lazy(() => import('./shell/SetPassword'));
 
 function ScreenLoading() {
@@ -129,6 +130,7 @@ const routes = [
           g('audit', <LegacyPage page={AuditTrail} />),
           g('users', <UsersAccess />),
           g('approval-policies', <ApprovalPolicies />),
+          g('system-health', <SystemHealth />),
           { path: '*', element: <NotFound /> },
         ],
       },

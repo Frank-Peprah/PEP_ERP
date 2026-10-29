@@ -68,7 +68,7 @@ PEP_ERP/
 
 | Item | Action |
 |---|---|
-| Two migration histories (`database/migrations` and the M0 branch) | One history under `supabase/migrations`; M0 ported as new numbered migrations in Phase 2. The `m0-realestate-posting-engine` branch is kept as reference until then |
+| Two migration histories (`supabase/migrations` and the M0 branch) | One history under `supabase/migrations`; M0 ported as new numbered migrations in Phase 2. The `m0-realestate-posting-engine` branch is kept as reference until then |
 | Committed build output (`app/`, root `index.html`/`404.html`) for branch-mode Pages | Move to Actions-only Pages deployment, or the new staging host; stop committing build artefacts to `main` |
 | Single `pep-api` function | Split by module |
 | Public repository | See decision D2 (12) |

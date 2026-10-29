@@ -1,7 +1,10 @@
 /**
  * Minimal forward-only migration runner.
- * Each file in database/migrations runs once inside a transaction and is
- * recorded with its SHA-256 so an edited, already-applied migration is detected.
+ * Each file in supabase/migrations (Supabase CLI layout: <version>_<name>.sql) runs once inside a
+ * transaction and is recorded with its SHA-256, so an edited, already-applied migration is detected.
+ * Applied migrations are tracked by name without the version prefix, so databases migrated before
+ * the move to the CLI layout (filenames like 001_core_ledger.sql) stay in sync.
+ * Files whose first line contains "pep:hosted-only" are skipped here (Supabase-only extensions).
  *   tsx database/migrate.ts          apply pending
  *   tsx database/migrate.ts --reset  DROP and rebuild (refuses when NODE_ENV=production)
  */
@@ -12,7 +15,8 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import 'dotenv/config';
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'supabase', 'migrations');
+const key = (file: string) => file.replace(/^\d{14}_/, '');
 
 export async function migrate(databaseUrl: string, opts: { reset?: boolean; quiet?: boolean } = {}) {
   const client = new pg.Client({ connectionString: databaseUrl });
@@ -29,15 +33,17 @@ export async function migrate(databaseUrl: string, opts: { reset?: boolean; quie
     );
     for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
       const sql = readFileSync(join(dir, file), 'utf8');
+      if (sql.split('\n', 1)[0].includes('pep:hosted-only')) continue;
       const sha = createHash('sha256').update(sql).digest('hex');
-      if (applied.has(file)) {
-        if (applied.get(file) !== sha) throw new Error(`Migration ${file} was modified after being applied`);
+      const name = key(file);
+      if (applied.has(name)) {
+        if (applied.get(name) !== sha) throw new Error(`Migration ${file} was modified after being applied`);
         continue;
       }
       await client.query('BEGIN');
       try {
         await client.query(sql);
-        await client.query('INSERT INTO schema_migrations (filename, sha256) VALUES ($1, $2)', [file, sha]);
+        await client.query('INSERT INTO schema_migrations (filename, sha256) VALUES ($1, $2)', [name, sha]);
         await client.query('COMMIT');
         if (!opts.quiet) console.log(`applied ${file}`);
       } catch (e) {

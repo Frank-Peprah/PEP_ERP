@@ -11,6 +11,7 @@ import * as S from './services/setup.js';
 import * as R from './services/reports.js';
 import * as FS from './services/statements.js';
 import * as U from './services/users.js';
+import { API_VERSION, systemHealth } from './services/health.js';
 import { dashboard } from './services/dashboard.js';
 
 const STATUS: Record<string, number> = {
@@ -83,7 +84,7 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
 
   app.get('/api/health', async () => {
     await db.query('SELECT 1');
-    return { ok: true, service: 'pep-erp-api', version: '0.3.0' };
+    return { ok: true, service: 'pep-erp-api', version: API_VERSION };
   });
 
   // Staging gate: when STAGING_ACCESS_CODE is set, demo login and the user list require it.
@@ -209,6 +210,7 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
   }
   // ── Users, invitations, approval policies (Blueprint Phase 0 · M0) ──
   app.get('/api/roles', { preHandler: authenticate }, async () => U.listRoles(db));
+  app.get(`${E}/system-health`, { preHandler: scoped }, async (req) => systemHealth(db, req.scope!));
   app.get(`${E}/users`, { preHandler: scoped }, async (req) => U.listUsers(db, req.scope!));
   app.post(`${E}/users/invite`, { preHandler: scoped }, async (req, reply) => {
     reply.status(201);

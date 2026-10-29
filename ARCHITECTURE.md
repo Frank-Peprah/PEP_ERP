@@ -16,7 +16,7 @@ apps/web  (React + Vite)  ──HTTP/JSON──▶  apps/api (Fastify, TypeScrip
 |---|---|---|
 | Domain | `packages/accounting-domain` | Money parsing/precision, FX translation, balance checks, workflow state machine, SoD. No I/O. |
 | Services | `apps/api/src/services` | Transactions, row locks, permission checks, audit events, numbering. |
-| Database | `database/migrations` | Second, independent enforcement of invariants (see ADR-002). |
+| Database | `supabase/migrations` | Second, independent enforcement of invariants (see ADR-002). |
 | Web | `apps/web` | Presentation only. Live journal totals use integer minor units (BigInt) — never floats. |
 
 ## Key data flows

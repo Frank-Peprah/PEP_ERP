@@ -1981,6 +1981,61 @@ async function approvalsRequired(db, scope, documentType, amount, on) {
   return { documentType, amount, on, approvalsRequired: Number(r.rows[0].n) };
 }
 
+// apps/api/src/services/health.ts
+var API_VERSION = "0.4.0-dev";
+async function systemHealth(db, scope) {
+  if (!scope.permissions.has("audit.read") && !scope.permissions.has("users.manage")) {
+    throw new DomainError("FORBIDDEN", "System health needs audit.read or users.manage");
+  }
+  const t0 = Date.now();
+  await db.query("SELECT 1");
+  const dbMs = Date.now() - t0;
+  const checks = [];
+  const chain = await db.query("SELECT verify_audit_chain() AS broken_at");
+  const broken = chain.rows[0].broken_at;
+  const events = await db.query("SELECT count(*)::int AS n, max(occurred_at) AS last FROM audit_events");
+  checks.push({
+    key: "audit_chain",
+    label: "Audit trail hash chain",
+    ok: broken === null,
+    detail: broken === null ? `${events.rows[0].n.toLocaleString("en-GB")} events, chain intact` : `Chain breaks at event ${broken}`
+  });
+  const tb = await db.query(
+    `SELECT fy.label, coalesce(sum(lp.debit),0)::numeric AS dr, coalesce(sum(lp.credit),0)::numeric AS cr
+       FROM financial_years fy
+       LEFT JOIN accounting_periods p ON p.financial_year_id = fy.id
+       LEFT JOIN ledger_postings lp ON lp.period_id = p.id
+      WHERE fy.entity_id = $1 GROUP BY fy.label, fy.start_date ORDER BY fy.start_date`,
+    [scope.entityId]
+  );
+  const unbalanced = tb.rows.filter((r) => r.dr !== r.cr);
+  checks.push({
+    key: "ledger_balanced",
+    label: "Posted ledger balances (debits = credits) per financial year",
+    ok: unbalanced.length === 0,
+    detail: unbalanced.length ? `Out of balance: ${unbalanced.map((r) => r.label).join(", ")}` : `${tb.rowCount} financial year(s) balance`
+  });
+  const stale = await db.query(
+    `SELECT count(*)::int AS n FROM journal_entries
+      WHERE entity_id = $1 AND status IN ('submitted','approved') AND updated_at < now() - interval '7 days'`,
+    [scope.entityId]
+  );
+  checks.push({
+    key: "approvals_backlog",
+    label: "Journals waiting more than 7 days for approval or posting",
+    ok: stale.rows[0].n === 0,
+    detail: stale.rows[0].n === 0 ? "None" : `${stale.rows[0].n} waiting`
+  });
+  const mig = await db.query(`SELECT count(*)::int AS n, max(filename) AS last FROM schema_migrations`).catch(() => null);
+  return {
+    api: { version: API_VERSION, dbLatencyMs: dbMs, checkedAt: (/* @__PURE__ */ new Date()).toISOString() },
+    migrations: mig ? { applied: mig.rows[0].n, latest: mig.rows[0].last } : null,
+    lastAuditEvent: events.rows[0].last,
+    checks,
+    ok: checks.every((c) => c.ok)
+  };
+}
+
 // apps/api/src/services/dashboard.ts
 var D3 = (v) => new Decimal(v ?? 0);
 var s22 = (d) => d.toFixed(2);
@@ -2198,7 +2253,7 @@ function buildApp(db, opts = {}) {
   };
   app2.get("/api/health", async () => {
     await db.query("SELECT 1");
-    return { ok: true, service: "pep-erp-api", version: "0.3.0" };
+    return { ok: true, service: "pep-erp-api", version: API_VERSION };
   });
   const checkAccessCode = (given) => {
     const code = getConfig("STAGING_ACCESS_CODE");
@@ -2306,6 +2361,7 @@ function buildApp(db, opts = {}) {
     app2.post(`${E}/statement-runs/:id/${action}`, { preHandler: scoped }, async (req) => transitionRun(db, req.scope, req.actor, req.params.id, action, { reason: req.body?.reason }));
   }
   app2.get("/api/roles", { preHandler: authenticate }, async () => listRoles(db));
+  app2.get(`${E}/system-health`, { preHandler: scoped }, async (req) => systemHealth(db, req.scope));
   app2.get(`${E}/users`, { preHandler: scoped }, async (req) => listUsers(db, req.scope));
   app2.post(`${E}/users/invite`, { preHandler: scoped }, async (req, reply) => {
     reply.status(201);

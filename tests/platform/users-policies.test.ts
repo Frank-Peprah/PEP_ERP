@@ -158,3 +158,20 @@ describe('Approval policies (effective-dated, append-only)', () => {
     expect(await bad({ reason: ' ' })).toBe('REASON_REQUIRED');
   });
 });
+
+describe('System health (S06)', () => {
+  it('administrators and auditors see live integrity checks; all pass on a clean ledger', async () => {
+    for (const who of ['admin', 'auditor']) {
+      const r = await c.call(who, 'GET', `${E()}/system-health`);
+      expect(r.statusCode, r.body).toBe(200);
+      const h = r.json();
+      expect(h.api.version).toBe('0.4.0-dev');
+      expect(h.checks.map((x: any) => x.key)).toEqual(['audit_chain', 'ledger_balanced', 'approvals_backlog']);
+      expect(h.checks.find((x: any) => x.key === 'audit_chain').ok).toBe(true);
+      expect(h.checks.find((x: any) => x.key === 'ledger_balanced').ok).toBe(true);
+    }
+  });
+  it('preparers without audit or user-management rights cannot open it', async () => {
+    expect((await c.call('ama', 'GET', `${E()}/system-health`)).json().error.code).toBe('FORBIDDEN');
+  });
+});
