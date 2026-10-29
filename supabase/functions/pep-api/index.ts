@@ -2060,9 +2060,14 @@ function buildApp(db, opts = {}) {
 // supabase/functions/pep-api/entry.ts
 var dbUrl = Deno.env.get("PEP_DATABASE_URL") ?? Deno.env.get("SUPABASE_DB_URL");
 if (!dbUrl) throw new Error("No database URL configured");
-for (const k of ["AUTH_SECRET", "STAGING_ACCESS_CODE", "CORS_ORIGIN", "SUPABASE_URL", "SUPABASE_JWT_SECRET", "REQUIRE_MFA"]) {
+for (const k of ["AUTH_SECRET", "STAGING_ACCESS_CODE", "CORS_ORIGIN", "SUPABASE_JWT_SECRET", "REQUIRE_MFA"]) {
   const v = Deno.env.get(k);
-  if (v) process.env[k] = v;
+  if (v && process.env[k] !== v) {
+    try {
+      process.env[k] = v;
+    } catch {
+    }
+  }
 }
 var app = buildApp(createPool(dbUrl, { max: 3, role: Deno.env.get("PEP_DB_ROLE") ?? "pep_app" }), { allowDevLogin: true });
 var ready = app.ready();

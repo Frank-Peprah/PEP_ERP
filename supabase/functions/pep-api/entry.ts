@@ -12,9 +12,12 @@ declare const Deno: { env: { get(k: string): string | undefined }; serve(h: (r: 
 
 const dbUrl = Deno.env.get('PEP_DATABASE_URL') ?? Deno.env.get('SUPABASE_DB_URL');
 if (!dbUrl) throw new Error('No database URL configured');
-for (const k of ['AUTH_SECRET', 'STAGING_ACCESS_CODE', 'CORS_ORIGIN', 'SUPABASE_URL', 'SUPABASE_JWT_SECRET', 'REQUIRE_MFA']) {
+// process.env already reads the function's environment in Supabase's Deno runtime. Copy only
+// keys that are missing there, and never write SUPABASE_* (reserved: writing them throws
+// NotSupported and kills the worker at boot, as seen on 29 Oct 2026).
+for (const k of ['AUTH_SECRET', 'STAGING_ACCESS_CODE', 'CORS_ORIGIN', 'SUPABASE_JWT_SECRET', 'REQUIRE_MFA']) {
   const v = Deno.env.get(k);
-  if (v) process.env[k] = v;
+  if (v && process.env[k] !== v) { try { process.env[k] = v; } catch { /* read-only in this runtime */ } }
 }
 const app = buildApp(createPool(dbUrl, { max: 3, role: Deno.env.get('PEP_DB_ROLE') ?? 'pep_app' }), { allowDevLogin: true });
 const ready = app.ready();
