@@ -12,6 +12,14 @@ Plan of record: `docs/blueprint/` (Build Blueprint v1.0). Status: `docs/phases/P
   edge build; licence gate, npm audit, gitleaks.
 - Tests: 96 (adds 14 role/RLS and 8 Supabase Auth tests). Staging: Supabase security advisor 0 findings.
 - Fix: Edge entry no longer writes reserved `SUPABASE_*` env vars (caused a 15-minute staging outage on deploy).
+- **Invitations** (M0): administrators invite people with roles; Supabase e-mails a link; the person sets a password
+  (A02) and enrols MFA. A Supabase user is linked to a PEP user only through an open invitation for their verified
+  e-mail. Nobody can invite themselves or change their own roles (API + database check).
+- **Approval policies** (migration 007): effective-dated, append-only tiers per document type; `approvals_required()`.
+  **Groups**: group → entity hierarchy. Screens S04 Users & Access and S05 Approval Policies.
+- **Rate limiting**: 600/min per IP; 20/min on sign-in, demo and invitation routes (`RATE_LIMITED`, 429).
+- **CI**: platform browser journeys (10); secret scan catches Supabase secret keys; staging deploy workflow (CLI).
+- Tests: 107 unit/integration/security + 24 browser journeys.
 
 ## 0.3.0 — 2026-10-29 — UI Phase 0: design system, app shell, dashboard
 Blueprint: "PEP ERP — UI Blueprint" (100 screens, six phases, go-live 19 Feb 2027).

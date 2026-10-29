@@ -14,14 +14,25 @@
 
 **Incident (29 Oct, about 15 min):** API v8 crashed at boot because writing the reserved `SUPABASE_URL` env var is refused by Supabase's runtime. It was rolled back to v7 (ce112cd), fixed in 5890620, and redeployed as v10. Smoke tests now run from inside the database via `pg_net` after every deploy.
 
+### Added 29 Oct (afternoon)
+
+| Item | Evidence |
+|---|---|
+| Invitation flow (M0): admin invites with roles → Supabase e-mail → set password (12+ chars) → MFA enrolment | `POST /entities/:id/users/invite`, A02 Set password screen; claim-on-first-sign-in only with an open invitation for the provider-verified e-mail; `tests/platform/users-policies.test.ts` (10) |
+| S04 Users & Access, S05 Approval Policies screens | `tests/e2e/platform.e2e.mjs`: 10 journeys, desktop + phone, axe clean |
+| Groups, approval policies (effective-dated, append-only), `approvals_required()` | Migration 007 (staging applied; both demo entities grouped) |
+| Rate limiting: 600/min per IP, 20/min on sign-in, demo and invitation routes | `lib/rate-limit.ts`; test proves the 21st attempt is refused and other clients are unaffected |
+| Secret scan tuned | `.gitleaks.toml`: publishable keys allowed (public by design); **new rule catches Supabase secret keys**, which the defaults missed |
+| Staging deploy from CI | `.github/workflows/deploy-staging.yml` (Supabase CLI, server-side bundling, smoke test). Waits for the `SUPABASE_ACCESS_TOKEN` secret |
+| Staging | API v11 at aeb724d: users list 200, `canSendInvites: true`, policy lookup 200; advisor 0 findings |
+
 ## Remaining in Phase 0 (by Fri 13 Nov)
 
 | Item | Owner | Note |
 |---|---|---|
-| Staging Auth users for real sign-in | **CEO** (dashboard step) + Claude (link) | CEO: Supabase → Authentication → Add user (your email, auto-confirm). Claude links it to the demo controller profile |
-| Invitation flow (admin invites, user sets password, enrols MFA) | Claude | Needs the Edge Function's service key; set-password screen |
-| Groups, `approval_policies` | Claude | Needed from Phase 2 |
-| Split `pep-api` into module functions | Claude | Bundle 107 KB, well under 20 MB, so low urgency |
-| Rate limiting, Sentry, health page | Claude | |
-| `deploy-staging.yml` (migrations + function deploy from CI) | Claude | Needs a `SUPABASE_ACCESS_TOKEN` GitHub secret (**CEO**) |
-| Decisions D1 (Supabase Pro), D2 (private repo), D17 (finance lead) | **CEO** | **D2 note:** the API is currently deployed by importing the bundle from the public repo via jsDelivr. Making the repo private needs the CI deploy (above) first, or the next deploy will fail |
+| Supabase Auth URL settings: Site URL and redirect allow-list = `https://frank-peprah.github.io/PEP_ERP/app/` | **CEO** (dashboard → Authentication → URL Configuration) | Without this, invitation links open the default Site URL instead of the app |
+| `SUPABASE_ACCESS_TOKEN` GitHub secret | **CEO** | Enables the staging deploy workflow; then the repo can go private (D2) |
+| Move migrations to `supabase/migrations` + `migration repair`; automated migration deploy | Claude | Migrations 005–007 were applied to staging with review via the Supabase tools |
+| Split `pep-api` into module functions | Claude | Bundle 112 KB; low urgency |
+| Error monitoring (Sentry) and health page | Claude | Needs a Sentry DSN (CEO, free tier) |
+| Decisions D1 (Supabase Pro), D17 (finance lead) | **CEO** | |
