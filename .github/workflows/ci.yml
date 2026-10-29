@@ -64,6 +64,7 @@ jobs:
           }
           run_journeys tests/e2e/phase0.e2e.mjs
           run_journeys tests/e2e/platform.e2e.mjs
+          run_journeys tests/e2e/close.e2e.mjs
         env:
           PORT: '4000'
           PEP_DB_ROLE: pep_app   # same least-privilege role as production

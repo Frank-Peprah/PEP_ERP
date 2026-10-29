@@ -120,16 +120,26 @@ export function captureAuthLink(): boolean {
   return true;
 }
 
+// The link is read once per page load and kept in memory, so a re-mounted screen (React strict
+// mode, a Suspense retry) sees the same link instead of an empty one.
+let taken: PendingLink | null | undefined;
 export function takePendingLink(): PendingLink | null {
+  if (taken !== undefined) return taken;
   try {
     const raw = sessionStorage.getItem(PENDING);
     sessionStorage.removeItem(PENDING);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+    taken = raw ? JSON.parse(raw) : null;
+  } catch { taken = null; }
+  return taken ?? null;
 }
 
 /** Start the session carried by an invitation/recovery link. */
-export async function startLinkSession(link: PendingLink) {
+let started: { link: PendingLink; run: Promise<void> } | null = null;
+export function startLinkSession(link: PendingLink): Promise<void> {
+  if (started?.link !== link) started = { link, run: openLinkSession(link) };   // once per link
+  return started.run;
+}
+async function openLinkSession(link: PendingLink) {
   if (link.error) throw new Error(/expired|invalid/i.test(link.error) ? 'This link has expired or was already used. Ask your administrator for a new invitation, or use "Forgot password?".' : link.error);
   if (!link.access_token || !link.refresh_token) throw new Error('This link is incomplete. Open it again from the e-mail.');
   const c = await authClient();
