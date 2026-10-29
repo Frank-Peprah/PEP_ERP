@@ -54,3 +54,4 @@ The blueprint is versioned with the code. Any change to scope, dates or architec
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 29 Oct 2026 | First issue, with 22 fixes from an independent consistency review applied; reconciled with UI Phase 0 (v0.3.0, ADR-005) already on `main` |
+| 1.1 | 29 Oct 2026 | D4 and D5 closed. Trulander holds no foreign currency: the system is FX-ready (currencies enabled per entity, Bank of Ghana rates), and IAS 21 revaluation moves from Phase 1 to when an entity first enables a currency |

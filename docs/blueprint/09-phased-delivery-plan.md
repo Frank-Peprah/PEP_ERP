@@ -69,7 +69,7 @@
 - Adjusted TB.
 - **Year-end closing journal.**
 - Recurring and auto-reversing journals.
-- FX rate tables with BoG fetch and manual entry, plus IAS 21 revaluation.
+- FX rate tables with manual entry (BoG reference default), currencies enabled per entity. *(v1.1: IAS 21 revaluation and the BoG daily fetch are deferred until an entity enables a foreign currency; Trulander is GHS-only.)*
 - Close checklist with auto-checks.
 - Audit-chain anchoring.
 - Retention policy.
@@ -80,7 +80,7 @@
 **Gate:**
 - 1,000-row opening-balance import reconciles to the control total.
 - Closing journal leaves the TB balanced and P&L at zero.
-- Revaluation reverses on day 1 of the next period.
+- ~~Revaluation reverses on day 1 of the next period.~~ Deferred with IAS 21 revaluation (v1.1); auto-reversal on day 1 is proven for accruals.
 - The anchor job publishes a hash and the verifier detects tampering.
 
 **Decisions needed:** D4 year-end close mechanics (default: closing journal), D5 FX rate source, D6 IFRS vs IFRS for SMEs for Trulander.
