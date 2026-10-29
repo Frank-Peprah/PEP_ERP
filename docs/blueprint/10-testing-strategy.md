@@ -28,6 +28,7 @@
 4. UI follows 06: axe passes, keyboard path works, Emil rules checked (Before/After table in the PR for UI changes).
 5. No copyleft or unknown licences; no secrets.
 6. CHANGELOG entry.
+7. User manual (the *PEP Accounting — User Manual* doc) updated for anything users see, with a change-log row.
 
 ## Test data
 

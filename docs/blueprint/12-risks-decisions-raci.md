@@ -22,7 +22,7 @@ Each decision has a default. If the default is used, the decision can be revisit
 | D14 | E-VAT obligation for Trulander | — | Confirm with GRA. Start onboarding in Phase 5 | CEO + practitioner | Fri 26 Feb 2027 | E-VAT timing |
 | D15 | AI provider | — | Provider behind an interface; must offer no-training terms and a DPA | CEO | Fri 2 Apr 2027 | Phase 6 |
 | D16 | Payroll: build or keep outsourced | — | **Keep outsourced** until Phase 7 review; import the payroll journal | CEO | Fri 30 Apr 2027 | Phase 7 scope |
-| D17 | Finance lead (owner of cleanup and UAT) | — | Named person, about 2 days/week Nov–Feb | CEO | Mon 2 Nov 2026 | **Go-live at risk** |
+| D17 | Finance lead (owner of cleanup and UAT) | — | **Decided 29 Oct 2026: Frank Peprah (CEO)** is company lead and finance lead. Because he also holds the controller role, at least one other approver is needed for segregation of duties | CEO | Closed | — |
 
 ## 2. Risk register
 
