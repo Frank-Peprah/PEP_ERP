@@ -10,6 +10,8 @@ immutable ledger, trial balance, period lock, and a hash-chained audit trail.
 > **Compliance boundary.** Outputs are drafts. Nothing here is certified IFRS-compliant,
 > audited, or GRA-approved. No tax rates or rules are implemented in this release.
 
+> **Build plan of record:** [`docs/blueprint/`](docs/blueprint/README.md) — Blueprint v1.0 (29 Oct 2026).
+
 ## Quick start
 
 Requirements: Node 22+, PostgreSQL 16 (needs `pgcrypto` and `btree_gist`, both bundled).
