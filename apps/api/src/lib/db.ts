@@ -10,25 +10,45 @@ export type Db = pg.Pool;
 export type Tx = pg.PoolClient;
 
 /**
- * opts.role: when set (e.g. 'pep_app'), every pooled connection runs `SET ROLE <role>` before use.
- * Production connects with a dedicated LOGIN role instead; SET ROLE is how local tests and
- * owner-credential environments exercise the same least-privilege role (migration 005).
+ * opts.role / PEP_DB_ROLE (e.g. 'pep_app'): every statement runs under that least-privilege role
+ * (migration 005). The role is applied with SET LOCAL ROLE inside each transaction, so it is
+ * correct behind a transaction-mode pooler (Supabase Edge Functions), where session-level
+ * settings do not persist and would leak to other clients. Stand-alone queries are wrapped in a
+ * short transaction for the same reason. A dedicated LOGIN role replaces this in production.
  */
 export function createPool(connectionString: string, opts: { max?: number; role?: string } = {}): Db {
   const pool = new pg.Pool({ connectionString, max: opts.max ?? 10, idleTimeoutMillis: 10_000 });
   const role = opts.role ?? process.env.PEP_DB_ROLE;
-  if (role) {
-    if (!/^[a-z_][a-z0-9_]{0,62}$/.test(role)) throw new Error('Invalid PEP_DB_ROLE');
-    pool.on('connect', (client) => { client.query(`SET ROLE ${role}`).catch(() => {}); });
-  }
+  if (!role) return pool;
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(role)) throw new Error('Invalid PEP_DB_ROLE');
+  (pool as RolePool).pepRole = role;
+  (pool as any).query = async (text: any, params?: any) => {
+    if (typeof params === 'function') throw new Error('callback-style queries are not supported');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SET LOCAL ROLE ${role}`);
+      const r = await client.query(text, params);
+      await client.query('COMMIT');
+      return r;
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  };
   return pool;
 }
+type RolePool = pg.Pool & { pepRole?: string };
 
 /** Run fn in a SERIALIZABLE-safe transaction (READ COMMITTED + explicit row locks). */
 export async function withTx<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    const role = (db as RolePool).pepRole;
+    if (role) await client.query(`SET LOCAL ROLE ${role}`);
     const out = await fn(client);
     await client.query('COMMIT');
     return out;

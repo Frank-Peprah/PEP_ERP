@@ -30,6 +30,16 @@ BEGIN
   END IF;
 END $$;
 
+-- The migrating role (Supabase: postgres, which is not a superuser) must be able to
+-- SET ROLE pep_app; the API applies it per transaction (SET LOCAL ROLE) until a dedicated
+-- LOGIN role is provisioned for production.
+DO $$
+BEGIN
+  IF NOT pg_has_role(current_user, 'pep_app', 'MEMBER') THEN
+    EXECUTE format('GRANT pep_app TO %I', current_user);
+  END IF;
+END $$;
+
 -- ── Extensions out of public ──────────────────────────────────────────────────
 CREATE SCHEMA IF NOT EXISTS extensions;
 DO $$

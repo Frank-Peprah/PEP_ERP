@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 
 const pkgVersion = (name) => JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf8')).version;
-const deps = ['fastify', '@fastify/cors', 'pg', 'decimal.js'];
+const deps = ['fastify', '@fastify/cors', 'pg', 'decimal.js', 'jose'];
 const map = Object.fromEntries(deps.map((d) => [d, `npm:${d}@${pkgVersion(d)}`]));
 
 await build({

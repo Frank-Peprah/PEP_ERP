@@ -137,12 +137,36 @@ pg.types.setTypeParser(1700, (v) => v);
 pg.types.setTypeParser(1082, (v) => v);
 pg.types.setTypeParser(20, (v) => v);
 function createPool(connectionString, opts = {}) {
-  return new pg.Pool({ connectionString, max: opts.max ?? 10, idleTimeoutMillis: 1e4 });
+  const pool = new pg.Pool({ connectionString, max: opts.max ?? 10, idleTimeoutMillis: 1e4 });
+  const role = opts.role ?? process.env.PEP_DB_ROLE;
+  if (!role) return pool;
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(role)) throw new Error("Invalid PEP_DB_ROLE");
+  pool.pepRole = role;
+  pool.query = async (text, params) => {
+    if (typeof params === "function") throw new Error("callback-style queries are not supported");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL ROLE ${role}`);
+      const r = await client.query(text, params);
+      await client.query("COMMIT");
+      return r;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {
+      });
+      throw e;
+    } finally {
+      client.release();
+    }
+  };
+  return pool;
 }
 async function withTx(db, fn) {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
+    const role = db.pepRole;
+    if (role) await client.query(`SET LOCAL ROLE ${role}`);
     const out = await fn(client);
     await client.query("COMMIT");
     return out;
@@ -186,7 +210,16 @@ async function audit(tx, ev) {
 }
 
 // apps/api/src/lib/config.ts
-var CONFIG_KEYS = ["AUTH_SECRET", "STAGING_ACCESS_CODE", "CORS_ORIGIN"];
+var CONFIG_KEYS = [
+  "AUTH_SECRET",
+  "STAGING_ACCESS_CODE",
+  "CORS_ORIGIN",
+  // Supabase Auth (Blueprint Phase 0): project URL (JWKS discovery), optional legacy HS256 secret,
+  // and whether finance access requires a two-step-verified session (default: required).
+  "SUPABASE_URL",
+  "SUPABASE_JWT_SECRET",
+  "REQUIRE_MFA"
+];
 var fromDb = {};
 function getConfig(key) {
   const env = process.env[key];
@@ -208,6 +241,7 @@ async function loadConfigFromDb(db) {
 
 // apps/api/src/lib/auth.ts
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify, decodeProtectedHeader } from "npm:jose@6.2.14";
 var TTL_SECONDS = 8 * 3600;
 function secret() {
   const s = getConfig("AUTH_SECRET");
@@ -236,6 +270,50 @@ function verifyToken(token) {
   const { sub, exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
   if (typeof exp !== "number" || exp < Date.now() / 1e3) throw new DomainError("UNAUTHENTICATED", "Token expired");
   return sub;
+}
+var jwks = null;
+function remoteKeys(url) {
+  if (!jwks || jwks.url !== url) jwks = { url, set: createRemoteJWKSet(new URL(url), { cooldownDuration: 3e4, cacheMaxAge: 6e5 }) };
+  return jwks.set;
+}
+var isJwt = (token) => token.split(".").length === 3;
+async function verifySupabaseJwt(token) {
+  const base = getConfig("SUPABASE_URL")?.replace(/\/$/, "");
+  let alg;
+  try {
+    alg = decodeProtectedHeader(token).alg;
+  } catch {
+    throw new DomainError("UNAUTHENTICATED", "Malformed token");
+  }
+  const common = { audience: "authenticated", ...base ? { issuer: `${base}/auth/v1` } : {} };
+  try {
+    if (alg === "HS256") {
+      const secret2 = getConfig("SUPABASE_JWT_SECRET");
+      if (!secret2) throw new DomainError("UNAUTHENTICATED", "HS256 tokens are not accepted by this server");
+      return (await jwtVerify(token, new TextEncoder().encode(secret2), { ...common, algorithms: ["HS256"] })).payload;
+    }
+    if (!base) throw new DomainError("AUTH_NOT_CONFIGURED", "SUPABASE_URL is not configured on the server");
+    return (await jwtVerify(token, remoteKeys(`${base}/auth/v1/.well-known/jwks.json`), { ...common, algorithms: ["ES256", "RS256", "EdDSA"] })).payload;
+  } catch (e) {
+    if (e instanceof DomainError) throw e;
+    throw new DomainError("UNAUTHENTICATED", "Invalid or expired session");
+  }
+}
+async function authenticateBearer(db, token, opts) {
+  if (!token) throw new DomainError("UNAUTHENTICATED", "Missing bearer token");
+  if (isJwt(token)) {
+    const claims = await verifySupabaseJwt(token);
+    const r = await db.query("SELECT id, email, full_name FROM users WHERE auth_user_id = $1 AND is_active", [claims.sub]);
+    if (!r.rowCount) throw new DomainError("UNAUTHENTICATED", "This sign-in is not linked to an active PEP user");
+    return { id: r.rows[0].id, email: r.rows[0].email, fullName: r.rows[0].full_name, method: "supabase", mfa: claims.aal === "aal2" };
+  }
+  if (!opts.allowDev || process.env.NODE_ENV === "production") throw new DomainError("UNAUTHENTICATED", "Unsupported token");
+  const actor = await loadActor(db, verifyToken(token));
+  return { ...actor, method: "dev", mfa: true };
+}
+function assertMfa(actor) {
+  if (getConfig("REQUIRE_MFA") === "false") return;
+  if (!actor.mfa) throw new DomainError("MFA_REQUIRED", "Complete two-step verification to access financial data");
 }
 async function loadActor(db, userId) {
   const r = await db.query("SELECT id, email, full_name FROM users WHERE id = $1 AND is_active", [userId]);
@@ -1806,6 +1884,7 @@ async function dashboard(db, scope, periodId) {
 var STATUS = {
   AUTH_NOT_CONFIGURED: 503,
   UNAUTHENTICATED: 401,
+  MFA_REQUIRED: 403,
   ACCESS_CODE_REQUIRED: 401,
   FORBIDDEN: 403,
   SEGREGATION_OF_DUTIES: 403,
@@ -1870,11 +1949,11 @@ function buildApp(db, opts = {}) {
   });
   const authenticate = async (req) => {
     const h = req.headers.authorization;
-    const uid = verifyToken(h?.startsWith("Bearer ") ? h.slice(7) : void 0);
-    req.actor = await loadActor(db, uid);
+    req.actor = await authenticateBearer(db, h?.startsWith("Bearer ") ? h.slice(7) : void 0, { allowDev: !!opts.allowDevLogin });
   };
   const scoped = async (req) => {
     await authenticate(req);
+    assertMfa(req.actor);
     req.scope = await loadScope(db, req.actor.id, req.params.entityId);
   };
   app2.get("/api/health", async () => {
@@ -1981,11 +2060,11 @@ function buildApp(db, opts = {}) {
 // supabase/functions/pep-api/entry.ts
 var dbUrl = Deno.env.get("PEP_DATABASE_URL") ?? Deno.env.get("SUPABASE_DB_URL");
 if (!dbUrl) throw new Error("No database URL configured");
-for (const k of ["AUTH_SECRET", "STAGING_ACCESS_CODE", "CORS_ORIGIN"]) {
+for (const k of ["AUTH_SECRET", "STAGING_ACCESS_CODE", "CORS_ORIGIN", "SUPABASE_URL", "SUPABASE_JWT_SECRET", "REQUIRE_MFA"]) {
   const v = Deno.env.get(k);
   if (v) process.env[k] = v;
 }
-var app = buildApp(createPool(dbUrl, { max: 3 }), { allowDevLogin: true });
+var app = buildApp(createPool(dbUrl, { max: 3, role: Deno.env.get("PEP_DB_ROLE") ?? "pep_app" }), { allowDevLogin: true });
 var ready = app.ready();
 Deno.serve(async (req) => {
   await ready;
