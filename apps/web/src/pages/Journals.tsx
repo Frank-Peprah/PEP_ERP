@@ -147,6 +147,19 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
   const [date, setDate] = useState(initial.journal_date ?? new Date().toISOString().slice(0, 10));
   const [desc, setDesc] = useState(initial.description ?? '');
   const [ref, setRef] = useState(initial.reference ?? '');
+  // Foreign currency (decision D5): only offered once a controller has enabled a currency.
+  const fn = c.entity.functional_currency;
+  const { data: cur } = useApi<any>(`${E(c)}/currencies`);
+  const ccys: string[] = [fn, ...((cur?.enabled ?? []).map((x: any) => x.code))];
+  const [ccy, setCcy] = useState<string>(initial.currency ?? fn);
+  const [rate, setRate] = useState<string>(initial.currency && initial.currency !== fn ? String(Number(initial.fx_rate)) : '');
+  const [rateTyped, setRateTyped] = useState(!!initial.id);
+  useEffect(() => {
+    if (ccy === fn || rateTyped || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    let live = true;
+    api(`${E(c)}/exchange-rates/lookup?currency=${ccy}&date=${date}`).then((r: any) => { if (live) setRate(r.rate ? String(Number(r.rate)) : ''); }).catch(() => {});
+    return () => { live = false; };
+  }, [ccy, date, rateTyped]);
   const [type, setType] = useState(initial.journal_type ?? 'manual');
   const ADJ = ['accrual', 'prepayment', 'correction'];
   const [adj, setAdj] = useState<boolean>(initial.is_adjustment ?? ADJ.includes(initial.journal_type ?? 'manual'));
@@ -171,7 +184,7 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
   const save = async (submit: boolean) => {
     setBusy(true);
     try {
-      const body = { journalDate: date, description: desc, reference: ref || null, journalType: type, isAdjustment: type === 'opening_balance' ? false : adj, autoReverseDate: type === 'opening_balance' ? null : rev || null,
+      const body = { journalDate: date, description: desc, reference: ref || null, currency: ccy, ...(ccy !== fn ? { fxRate: rate || undefined } : {}), journalType: type, isAdjustment: type === 'opening_balance' ? false : adj, autoReverseDate: type === 'opening_balance' ? null : rev || null,
         lines: used.map((r) => ({ accountId: byLabel.get(r.account.trim())?.id, description: r.description || null, debit: r.debit || null, credit: r.credit || null })),
         ...(initial.id ? { expectedVersion: initial.version } : {}) };
       const j = initial.id ? await api(`${E(c)}/journals/${initial.id}`, { method: 'PUT', body }) : await api(`${E(c)}/journals`, { method: 'POST', body });
@@ -185,13 +198,19 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
     <div className="overlay" onClick={onClose}>
       <div className="drawer" style={{ width: 'min(1040px, 98vw)' }} onClick={(e) => e.stopPropagation()}>
         <div className="drawer-h"><div><h1 style={{ fontSize: 20 }}>{initial.id ? `Edit draft D-${initial.draft_no}` : 'New journal'}</h1>
-          <div className="sub">Type an account code or name. Tab across cells; a new row appears as you type. Amounts in {c.entity.functional_currency}.</div></div>
+          <div className="sub">Type an account code or name. Tab across cells; a new row appears as you type. Amounts in {ccy}{ccy !== fn ? `, converted to ${fn} at the rate shown` : ''}.</div></div>
           <button className="btn sm" onClick={onClose}><Icon n="x" size={14} /></button></div>
         <div className="drawer-b">
           <div className="row" style={{ marginBottom: 16 }}>
             <label className="field" style={{ width: 160 }}>Date<input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
             <label className="field" style={{ flex: 1, minWidth: 260 }}>Description<input className="input" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Plot sales — October" /></label>
             <label className="field" style={{ width: 160 }}>Reference<input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Invoice / deed no." /></label>
+            {ccys.length > 1 && <>
+              <label className="field" style={{ width: 110 }}>Currency<select className="input" value={ccy} onChange={(e) => { setCcy(e.target.value); setRateTyped(false); }}>
+                {ccys.map((x) => <option key={x}>{x}</option>)}</select></label>
+              {ccy !== fn && <label className="field" style={{ width: 150 }}>{fn} per 1 {ccy}<input className="input mono" inputMode="decimal" value={rate} placeholder="No rate recorded"
+                onChange={(e) => { setRate(e.target.value); setRateTyped(true); }} /></label>}
+            </>}
             <label className="field" style={{ width: 170 }}>Type<select className="input" value={type} onChange={(e) => { const t = e.target.value; setType(t); setAdj(ADJ.includes(t)); if (t === 'accrual' && !rev && /^\d{4}-\d{2}-\d{2}$/.test(date)) setRev(nextMonth(date)); if (t === 'opening_balance') setRev(''); }}>
               {['manual', 'opening_balance', 'accrual', 'prepayment', 'correction'].map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}</select></label>
             <label className="field" style={{ width: 170, flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-end', minHeight: 40 }}

@@ -89,6 +89,22 @@ for (const [vp, size] of Object.entries(VIEWPORTS)) {
     await ctx.close();
   });
 
+  await check(`[${vp}] currencies: GHS is functional; only a controller can enable another currency`, async () => {
+    const { page, ctx, errors } = await pageAs('frank@pep.local', size);
+    await page.goto(`${BASE}/trulander/currencies`);
+    await page.getByRole('heading', { name: 'Currencies', exact: true }).waitFor({ timeout: 20000 });
+    await page.getByText(/GHS · functional/).waitFor();
+    await page.getByRole('button', { name: 'Enable currency' }).waitFor();
+    await axe(page, 'currencies'); await noOverflow(page, 'currencies');
+    assert(!errors.length, errors.join('; '));
+    await ctx.close();
+    const a = await pageAs('ama@pep.local', size);
+    await a.page.goto(`${BASE}/trulander/currencies`);
+    await a.page.getByText(/GHS · functional/).waitFor({ timeout: 20000 });
+    assert(await a.page.getByRole('button', { name: 'Enable currency' }).count() === 0, 'accountant can enable currencies');
+    await a.ctx.close();
+  });
+
   await check(`[${vp}] an accountant can view the close but cannot generate it`, async () => {
     const { page, ctx } = await pageAs('ama@pep.local', size);
     await page.goto(`${BASE}/trulander/year-end-close`);

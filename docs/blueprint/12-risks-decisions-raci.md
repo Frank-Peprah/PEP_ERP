@@ -10,7 +10,7 @@ Each decision has a default. If the default is used, the decision can be revisit
 | D2 | Repository visibility | Public / **Private** | **Private.** Move staging web off GitHub Pages to Netlify or Cloudflare Pages (free tiers work with private repos) | CEO | Mon 2 Nov 2026 | Schema and controls stay publicly readable |
 | D3 | Production web host | Netlify / Cloudflare Pages / SiteGround | **Cloudflare Pages or Netlify** (security headers, previews). SiteGround as a static fallback | CEO | Fri 6 Nov 2026 | Phase 4 |
 | D4 | Year-end close | Closing journal / presentational | **Closing journal** to retained earnings | CEO (FCCA) | Fri 13 Nov 2026 | Phase 1 rework |
-| D5 | FX rate source | BoG reference / bank rate | **BoG reference** with manual override and reason | CEO | Fri 13 Nov 2026 | Phase 1 |
+| D5 | FX rate source | BoG reference / bank rate | **Decided 29 Oct 2026:** BoG reference, bank or manual rate with a reason. Trulander holds no foreign currency; system is FX-ready (enable per entity), IAS 21 revaluation deferred until a currency is enabled | CEO | Closed | Phase 1 |
 | D6 | Trulander framework | Full IFRS / IFRS for SMEs | Full IFRS in use now. **IFRS for SMEs** is probably what applies unless Trulander is a public interest entity | CEO | Fri 13 Nov 2026 | Note library size |
 | D7 | Principal/agent mix; mandate terms | — | Both supported per contract | CEO | Fri 27 Nov 2026 | Phase 2 posting rules |
 | D8 | Revenue trigger event | Indenture executed / possession / full payment | **Indenture executed or possession, whichever is first** | CEO | Fri 27 Nov 2026 | Phase 2 |

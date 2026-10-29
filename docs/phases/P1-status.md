@@ -1,6 +1,6 @@
 # Phase 1 — Ledger completeness: status
 
-Plan: `docs/blueprint/` (P1 window 16–27 Nov 2026; started early, 29 Oct). API 0.5.2-dev on staging.
+Plan: `docs/blueprint/` (P1 window 16–27 Nov 2026; started early, 29 Oct). API 0.5.3-dev on staging.
 
 | Item | Status | Evidence |
 |---|---|---|
@@ -9,7 +9,8 @@ Plan: `docs/blueprint/` (P1 window 16–27 Nov 2026; started early, 29 Oct). API
 | Recurring and auto-reversing journals | Done, on staging | migration 011; `tests/accounting-invariants/recurring-and-auto-reversing.test.ts` (13); journey in `tests/e2e/close.e2e.mjs` |
 | Attachments (Supabase Storage) | Next | — |
 | CSV/XLSX journal and opening-balance import | Planned | — |
-| FX rates (BoG) and IAS 21 revaluation | Planned — needs D-decision on rate source | — |
+| Currencies and exchange rates (FX-ready, D5) | Done, on staging | migration 012; `tests/accounting-invariants/currencies.test.ts` (6); journey in `tests/e2e/close.e2e.mjs` |
+| IAS 21 revaluation, FX gains/losses | Deferred — built when an entity first enables a currency (Trulander is GHS-only) | — |
 | Close checklist | Planned | — |
 | Audit-chain anchoring, retention | Planned | — |
 | Queue/scheduler skeleton (pgmq, pg_cron) | Planned | — |

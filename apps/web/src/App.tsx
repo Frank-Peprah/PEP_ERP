@@ -31,6 +31,7 @@ const ApprovalPolicies = lazy(() => import('./modules/admin/ApprovalPolicies'));
 const SystemHealth = lazy(() => import('./modules/admin/SystemHealth'));
 const YearEndClose = lazy(() => import('./modules/close/YearEndClose'));
 const RecurringJournals = lazy(() => import('./modules/recurring/RecurringJournals'));
+const Currencies = lazy(() => import('./modules/settings/Currencies'));
 const SetPassword = lazy(() => import('./shell/SetPassword'));
 
 function ScreenLoading() {
@@ -135,6 +136,7 @@ const routes = [
           g('system-health', <SystemHealth />),
           g('year-end-close', <YearEndClose />),
           g('recurring-journals', <RecurringJournals />),
+          g('currencies', <Currencies />),
           { path: '*', element: <NotFound /> },
         ],
       },

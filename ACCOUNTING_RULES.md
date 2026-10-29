@@ -11,7 +11,9 @@ Owner: Group CFO. Changes require review and a new ADR where behaviour changes.
 - Each journal carries transaction currency and one FX rate to the functional currency (rate must be 1 when equal).
 - Functional amount per line = transaction amount × rate, banker's rounding (half-even) to functional precision.
 - A journal must balance in **both** currencies. A translation rounding difference is surfaced as `FX_ROUNDING_DIFFERENCE`; the preparer adds an explicit rounding line. The system never plugs it.
-- Not yet implemented: rate tables, revaluation of monetary items (IAS 21), realised/unrealised FX.
+- Currencies (decision D5): an entity posts only in its functional currency (GHS for Trulander) or a currency a controller has enabled (database-enforced, `CURRENCY_NOT_ENABLED`). Trulander holds no foreign currency today; the structure is in place so enabling one needs no change to the system.
+- Exchange rates are functional units per one foreign unit, recorded per entity, date and source: Bank of Ghana reference by default; a bank or manual rate needs a reason. Rates are never edited or deleted (database); a correction is a new rate. A foreign-currency journal takes the rate in force on its date (latest rate on or before it; latest recorded wins) unless the preparer enters one; with no rate it is refused (`FX_RATE_REQUIRED`).
+- Not yet implemented, built when an entity first enables a currency: period-end revaluation of monetary items (IAS 21), realised/unrealised FX gains and losses, foreign-currency bank accounts, daily Bank of Ghana rate feed.
 
 ## Journal lifecycle
 `draft → submitted → approved → posted`; `submitted/approved → draft` (return); any pre-posted state → `rejected` (terminal, retained).
@@ -54,4 +56,4 @@ Owner: Group CFO. Changes require review and a new ADR where behaviour changes.
 ## Open decisions for professional review
 1. ~~Year-end close mechanics~~ — resolved: closing journal (see Year-end close). Years not yet closed still roll forward presentationally (`PRIOR_YEAR_NOT_CLOSED`).
 2. Whether control accounts (AR/AP/tax) block manual journals once subledgers exist (R3) — flag exists, not enforced.
-3. FX rate source and hierarchy for Ghana (BoG reference rate vs. bank rate) — not implemented.
+3. ~~FX rate source~~ — resolved (D5): Bank of Ghana reference rate, bank or manual rate with a reason. Trulander is GHS-only; revaluation is built when a currency is first enabled.
