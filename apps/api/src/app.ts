@@ -3,7 +3,7 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import { createLimiter } from './lib/rate-limit.js';
 import { DomainError } from '@pep/accounting-domain';
-import { translatePgError, type Db } from './lib/db.js';
+import { audit, translatePgError, withTx, type Db } from './lib/db.js';
 import { getConfig, loadConfigFromDb } from './lib/config.js';
 import { assertMfa, authenticateBearer, issueToken, loadScope, type Actor, type EntityScope } from './lib/auth.js';
 import * as J from './services/journals.js';
@@ -113,6 +113,18 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
   });
 
   app.get('/api/me', { preHandler: authenticate }, async (req) => {
+    // First real sign-in after an invitation (the Auth user was linked when the invite was sent):
+    // record acceptance once, in the audit trail of each entity that invited them.
+    if (req.actor!.method === 'supabase') {
+      await withTx(db, async (tx) => {
+        const acc = await tx.query(
+          `UPDATE user_invitations SET status = 'accepted', accepted_at = now()
+            WHERE user_id = $1 AND status = 'sent' RETURNING entity_id`, [req.actor!.id]);
+        for (const row of acc.rows) {
+          await audit(tx, { entityId: row.entity_id, actorId: req.actor!.id, action: 'user.invitation_accepted', objectType: 'user', objectId: req.actor!.id });
+        }
+      });
+    }
     const ents = await db.query(
       `SELECT e.id, e.code, e.legal_name, e.functional_currency, array_agg(DISTINCT uer.role_code) AS roles
          FROM user_entity_roles uer JOIN entities e ON e.id = uer.entity_id

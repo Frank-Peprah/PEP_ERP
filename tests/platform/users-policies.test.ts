@@ -75,6 +75,12 @@ describe('Invitations', () => {
     // The invited person signs in (after setting a password and enrolling MFA) and reaches Trulander.
     const t = await jwtFor(authId, 'abena@example.com');
     expect((await asJwt(t, 'GET', `${E()}/journals`)).statusCode).toBe(200);
+    // Their first visit to the app (GET /me) records the invitation as accepted, once.
+    await asJwt(t, 'GET', '/api/me'); await asJwt(t, 'GET', '/api/me');
+    const inv = await c.adminDb.query(`SELECT status FROM user_invitations WHERE email = 'abena@example.com'`);
+    expect(inv.rows.map((r: any) => r.status)).toEqual(['accepted']);
+    const aud = await c.adminDb.query(`SELECT count(*)::int n FROM audit_events WHERE action = 'user.invitation_accepted' AND object_id = $1`, [r.json().userId]);
+    expect(aud.rows[0].n).toBe(1);
   });
 
   it('existing Supabase sign-in: linked automatically on first sign-in with the invited, verified e-mail', async () => {

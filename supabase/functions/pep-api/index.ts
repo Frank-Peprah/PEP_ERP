@@ -2223,6 +2223,18 @@ function buildApp(db, opts = {}) {
     )).rows;
   });
   app2.get("/api/me", { preHandler: authenticate }, async (req) => {
+    if (req.actor.method === "supabase") {
+      await withTx(db, async (tx) => {
+        const acc = await tx.query(
+          `UPDATE user_invitations SET status = 'accepted', accepted_at = now()
+            WHERE user_id = $1 AND status = 'sent' RETURNING entity_id`,
+          [req.actor.id]
+        );
+        for (const row of acc.rows) {
+          await audit(tx, { entityId: row.entity_id, actorId: req.actor.id, action: "user.invitation_accepted", objectType: "user", objectId: req.actor.id });
+        }
+      });
+    }
     const ents = await db.query(
       `SELECT e.id, e.code, e.legal_name, e.functional_currency, array_agg(DISTINCT uer.role_code) AS roles
          FROM user_entity_roles uer JOIN entities e ON e.id = uer.entity_id
