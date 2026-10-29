@@ -5,7 +5,7 @@
 ## Executive summary
 
 1. **Strategy: clone around a core we already own.** No open-source system is both double-entry and Supabase-native. The existing PEP ledger is stronger than any permissively licensed alternative, so it stays as the core.
-   - **Forked:** the shadcn-admin UI shell (MIT).
+   - **UI:** the in-house shell from UI Phase 0 (v0.3.0) is kept; shadcn-admin (MIT) supplies component and page patterns.
    - **Adopted:** Basejump's tenancy/RLS patterns and pgTAP harness (MIT); Glide Data Grid (MIT, vendored); TanStack Table v9 (MIT).
    - **Ported:** TaxHacker's AI extraction (MIT); our own M0 real-estate posting engine.
    - **Study only:** ERPNext, Odoo, Midday and Bigcapital (copyleft). → [03](03-clone-strategy.md)
@@ -53,4 +53,4 @@ The blueprint is versioned with the code. Any change to scope, dates or architec
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | 29 Oct 2026 | First issue, with 22 fixes from an independent consistency review applied |
+| 1.0 | 29 Oct 2026 | First issue, with 22 fixes from an independent consistency review applied; reconciled with UI Phase 0 (v0.3.0, ADR-005) already on `main` |

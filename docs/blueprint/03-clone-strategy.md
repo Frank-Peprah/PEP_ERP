@@ -19,10 +19,10 @@ The PEP ERP ledger core (R1–R2: workflow, SoD, gapless numbering, hash-chained
 
 | Layer | Clone source | Licence | How we use it | Phase |
 |---|---|---|---|---|
-| **Frontend shell** (layout, sidebar, top bar, theming, auth pages, data-table, settings, command palette, error pages) | [satnaing/shadcn-admin](https://github.com/satnaing/shadcn-admin) | MIT | **Fork into `apps/web`.** React 19, Vite, Tailwind 4, TanStack Router, shadcn/ui. Rebrand navy/gold. Port the existing 9 PEP pages into it. Replace demo auth with Supabase Auth | 0 |
-| **Component system** | [shadcn/ui](https://ui.shadcn.com) (copy-in), Radix/Base UI, Sonner, cmdk, react-hook-form + zod, react-day-picker, lucide, Recharts | MIT / ISC | Components live in-repo (`packages/ui`) and are tuned to the Emil Kowalski rules (06) | 0 |
+| **Frontend shell** | **Already built in-house** in UI Phase 0 (v0.3.0, ADR-005): Radix primitives in the shadcn/ui pattern, React Router 8, design tokens, shell, Cmd-K | MIT/ISC deps | Kept. [satnaing/shadcn-admin](https://github.com/satnaing/shadcn-admin) (MIT) becomes a **pattern and component source** (data-table, settings, auth and MFA pages), copied piece by piece into `apps/web/src/design`, not forked wholesale | 0 |
+| **Component system** | [shadcn/ui](https://ui.shadcn.com) (copy-in), Radix/Base UI, Sonner, cmdk, react-hook-form + zod, react-day-picker, lucide; charts as plain SVG (ADR-005 budget) | MIT / ISC | Components live in-repo (`apps/web/src/design`, extracted to `packages/ui` when a second app needs them) and are tuned to the Emil Kowalski rules (06) | 0 |
 | **Spreadsheet entry grid** | [Glide Data Grid](https://github.com/glideapps/glide-data-grid) 6.0.3 | MIT | Journal grid, bank-statement grid, import preview, budget grid. **Pinned, and vendored as a fork** because there has been no stable release since Feb 2024 | 0–1 |
-| **Report and list tables** | [TanStack Table](https://github.com/TanStack/table) **v9** + TanStack Virtual | MIT | Standardise on v9 now (v9.3.1, Oct 2026); port shadcn-admin's v8 data-table once in Phase 0 | 0 |
+| **Report and list tables** | [TanStack Table](https://github.com/TanStack/table) **v9** + TanStack Virtual | MIT | Standardise on v9 now (v9.3.1, Oct 2026); build the PEP data-table on v9 in UI Phase 1, using shadcn-admin's data-table as the pattern | 0 |
 | **Multi-tenancy, RLS and DB test harness** | [Basejump](https://github.com/usebasejump/basejump) migrations + `supabase_test_helpers` | MIT | Copy its membership/role and RLS patterns and its pgTAP helpers. Remodel as **group → entity → user role**, mapped onto our existing `user_entity_roles` and `role_permissions`, as a Phase 0 migration in `supabase/migrations`. Unmaintained upstream, so we own the copy | 0 |
 | **Ledger balance cache pattern** | [pgledger](https://github.com/pgr0ss/pgledger) | MIT | Borrow its versioned account-balance design for a **rebuildable, reconciled** period-balance cache (ADR-003 trigger: above 1M lines). Not authoritative | 1 / 6 |
 | **Real-estate posting engine** | Our own M0 build (branch `m0-realestate-posting-engine`) | Ours | Port event → effective-dated posting rules, parcels, parties and the real-estate chart of accounts into new migrations in `supabase/migrations`, **remapping M0 account codes to the PEP chart** (they clash: M0 2110 is trade payables, PEP 2110 is customer deposits; PEP 2300 is agent commissions payable) | 2 |
@@ -68,7 +68,7 @@ The PEP ERP ledger core (R1–R2: workflow, SoD, gapless numbering, hash-chained
 ## 6. Fork mechanics
 
 ```
-apps/web/            ← forked from shadcn-admin @ <sha>; history squashed; UPSTREAM file kept
+apps/web/            ← in-house shell (v0.3.0); pieces copied from shadcn-admin record the upstream commit in a header comment
 packages/ui/         ← shadcn components (copy-in), tuned to the Emil rules
 packages/grid/       ← vendored Glide Data Grid fork @ 6.0.3 + PEP patches
 packages/accounting-domain/   ← existing (ours)

@@ -19,8 +19,8 @@
 ## 2. Logical architecture
 
 ```
-┌──────────────────────── Browser / PWA (apps/web: shadcn-admin fork) ────────────────────────┐
-│ TanStack Router · TanStack Query cache · Glide grid · TanStack Table v9 · cmdk · Sonner      │
+┌──────────────────────── Browser / PWA (apps/web, ADR-005 stack) ─────────────────────────────┐
+│ React Router 8 · TanStack Query cache · Glide grid · TanStack Table v9 · cmdk · Sonner       │
 │ supabase-js: Auth (MFA) · PostgREST reads (api.*) · Realtime Broadcast · Storage uploads     │
 │ PowerSync local SQLite (Phase 8: capture & drafts only)                                       │
 └───────────────┬───────────────────────────────┬───────────────────────────────┬──────────────┘
@@ -131,12 +131,14 @@ create index on pep.journal_entries (entity_id);   -- every policy column indexe
 
 ## 8. Architecture decisions to record as ADRs (Phase 0)
 
+ADR-001 to ADR-005 already exist (ADR-005 = UI stack, accepted 29 Oct 2026).
+
 | ADR | Decision |
 |---|---|
-| ADR-005 | Supabase Auth with MFA replaces custom tokens; AAL2 enforced in RLS and the API |
-| ADR-006 | Commands through module Edge Functions as `pep_app`; queries through PostgREST `api` views with RLS |
-| ADR-007 | Posting engine: modules emit events; effective-dated rules build journals; no module writes ledger lines |
-| ADR-008 | Outbox → Realtime Broadcast + pgmq; Postgres Changes is not used on ledger tables |
-| ADR-009 | Clone strategy and licence policy (03) |
-| ADR-010 | TanStack Table v9 and the Glide fork as the grid standards |
-| ADR-011 | Environments: local → PR preview branch → staging → production, with migration promotion rules |
+| ADR-006 | Supabase Auth with MFA replaces custom tokens; AAL2 enforced in RLS and the API |
+| ADR-007 | Commands through module Edge Functions as `pep_app`; queries through PostgREST `api` views with RLS |
+| ADR-008 | Posting engine: modules emit events; effective-dated rules build journals; no module writes ledger lines |
+| ADR-009 | Outbox → Realtime Broadcast + pgmq; Postgres Changes is not used on ledger tables |
+| ADR-010 | Clone strategy and licence policy (03) |
+| ADR-011 | TanStack Table v9 and the Glide fork as the grid standards |
+| ADR-012 | Environments: local → PR preview branch → staging → production, with migration promotion rules |

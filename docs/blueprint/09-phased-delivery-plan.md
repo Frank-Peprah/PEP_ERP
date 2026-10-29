@@ -9,7 +9,7 @@
 | **Plan** (days 1–2) | Confirm scope against this blueprint; resolve the decisions listed for the phase; write ADRs; write the phase test plan (golden datasets, scenarios) | `docs/phases/P<n>-plan.md`, ADRs |
 | **Build** (days 3–8) | Migrations → domain rules → command services → `api` views + RLS → UI screens → docs. Small PRs to `main` behind feature flags | PRs with green CI |
 | **Test** (days 8–9) | Full automated suite (10), phase gate tests, Playwright journeys, security scans, CEO review session (2–3 h, fixed day) | Gate report `docs/phases/P<n>-gate.md` |
-| **Deploy** (day 10) | Tag `v0.<n+3>.0` (Phase 0 → v0.3.0) → migrations to staging → functions → web → smoke tests → release notes. Production deploys start at Phase 4 | Release notes, deploy log |
+| **Deploy** (day 10) | Tag `v0.<n+4>.0` (Phase 0 → v0.4.0; v0.3.0 was UI Phase 0) → migrations to staging → functions → web → smoke tests → release notes. Production deploys start at Phase 4 | Release notes, deploy log |
 
 **Go-live target:** opening TB at 31 Dec 2026, live posting from 1 Jan 2027. **Production switch-on Fri 19 Feb 2027**, with January closed in parallel.
 
@@ -17,13 +17,13 @@
 
 ## Phase 0 — Re-platform & foundations · Mon 2 Nov → Fri 13 Nov 2026
 
-**Goal:** the existing R1/R2 logic runs on the target platform (Supabase Auth, RLS, the cloned UI shell, CI/CD) with zero regressions.
+**Goal:** the existing R1/R2 logic and the v0.3.0 UI shell run on the target platform (Supabase Auth, RLS, CI/CD) with zero regressions.
 
 **Build:**
 1. Repo restructure (03 §6).
-   - Fork shadcn-admin into `apps/web`.
-   - Create `packages/ui`, `packages/grid` (Glide fork) and `packages/contracts`.
-   - Port the 9 existing pages: Dashboard, Journals, Ledger, TB, Accounts, Periods, Statements, Audit, Notes.
+   - UI shell and dashboard already done (v0.3.0). Add sign-in, MFA enrolment/challenge and session screens to the shell (shadcn-admin auth pages as the pattern).
+   - Create `packages/grid` (Glide fork) and `packages/contracts`.
+   - The Release 1–2 screens are rebuilt inside the shell by the UI programme's Phase 1, not here.
 2. Supabase CLI project.
    - `supabase/config.toml`; migrations moved under the CLI convention, keeping the existing `database/migrate.ts` for local Postgres tests.
    - Move `btree_gist` out of `public` (advisor warning).
@@ -51,7 +51,7 @@
 8. Security headers, CSP and rate limiting.
 9. Sentry and the health page.
 10. Groups, user invitations and `approval_policies` (thresholds by document type), used from Phase 2.
-11. ADR-005 to ADR-011.
+11. ADR-006 to ADR-012.
 
 **Gate:**
 - All existing tests pass unchanged.

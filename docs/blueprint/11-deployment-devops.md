@@ -15,7 +15,7 @@
 ```
 PEP_ERP/
 ├─ apps/
-│  ├─ web/                 shadcn-admin fork (UI)
+│  ├─ web/                 React app: design system + shell (ADR-005)
 │  ├─ api/                 Fastify services (commands), grouped by module
 │  └─ site/                public website (static)
 ├─ packages/
@@ -54,7 +54,7 @@ PEP_ERP/
 
 - **Trunk-based.** Short-lived branches `feat/<module>-<topic>`; squash-merge to `main`; feature flags (`app_config` + per-entity flags) for incomplete modules.
 - Protected `main`: PR required, CI green, linear history.
-- **Versions:** `v0.<phase+3>.<patch>` until go-live (continuing from the current v0.2.0, so Phase 0 is v0.3.0 and Phase 4 is v0.7.0), then `v1.0.0` on Fri 19 Feb 2027 and semantic versioning after.
+- **Versions:** `v0.<phase+4>.<patch>` until go-live (v0.3.0 was UI Phase 0, so Phase 0 is v0.4.0 and Phase 4 is v0.8.0), then `v1.0.0` on Fri 19 Feb 2027 and semantic versioning after.
 - Every release has CHANGELOG notes, a migration list and a rollback note.
 
 ## 5. Migration rules

@@ -39,7 +39,7 @@ Each decision has a default. If the default is used, the decision can be revisit
 | R9 | Data breach or non-compliance with Act 843 | L | H | Controls C1–C17; DPC registration; pen test | CEO |
 | R10 | Scope creep pushes go-live past 19 Feb | M | H | Go-live scope frozen (Phases 0–4). New requests go to Phase 5+ unless they replace something | CEO |
 | R11 | Copyleft code enters the codebase | L | H | CI licence gate; PR checkbox; studied projects are never vendored | Claude |
-| R12 | Concurrent sessions changing the same repo collide (other chats also building PEP_ERP) | M | M | **One build stream at a time on `main`.** Other sessions work on branches; this blueprint is the single plan of record | CEO + Claude |
+| R12 | Concurrent sessions changing the same repo collide. **This has already happened:** UI Phase 0 (v0.3.0) landed on `main` while this blueprint was being written | H | M | **One build stream at a time on `main`.** The UI programme ("PEP ERP — UI Blueprint", 100 screens in six UI phases) runs *inside* Phases 0–4 here as the front-end track; this blueprint is the plan of record for scope, sequence and gates. Other sessions work on branches and rebase | CEO + Claude |
 | R13 | AI suggestions trusted blindly | M | M | Suggestions only, measured thresholds, undo, activity log, benchmarks | Claude |
 | R14 | Supabase region outside Africa (cross-border data transfer) | M | M | Disclosure in the privacy notice and DPC registration; review if an African region becomes available | CEO |
 

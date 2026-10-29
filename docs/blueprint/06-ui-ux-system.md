@@ -1,6 +1,6 @@
 # 06 — UI/UX system
 
-Foundation: **Emil Kowalski design-engineering rules** (standing project preference) on a **shadcn-admin fork**, branded navy #1B2A4A / gold #C9A84C.
+Foundation: **Emil Kowalski design-engineering rules** (standing project preference) on the in-house design system and shell built in UI Phase 0 (v0.3.0, ADR-005), branded navy #1B2A4A / gold #C9A84C. shadcn-admin (MIT) is a pattern source only.
 
 ## 1. Information architecture
 
@@ -53,7 +53,7 @@ Sidebar (role-aware; hidden items are not rendered, and the API also denies them
 
 ## 4. Front-end architecture
 
-- **Routing:** TanStack Router (file-based) with typed search params, so filters live in the URL and are shareable.
+- **Routing:** React Router 8 (ADR-005). Entity and period already live in the URL (`/trulander/trial-balance?period=2026-10`); filters follow the same rule, so every view is shareable.
 - **Data:** TanStack Query; supabase-js for `api.*` reads; a typed `commands` client for Edge Functions (zod schemas shared from `packages/contracts`). Mutations invalidate by query key, and Realtime events invalidate too.
 - **Permissions:** `useCan('journals.approve')` hides UI. The API and RLS remain the authority.
 - **Packages:** `packages/ui` (components), `packages/grid` (Glide fork + PEP cells: account, amount, date, dimension), `packages/contracts` (zod DTOs), `packages/accounting-domain` (existing).
