@@ -92,15 +92,14 @@ every module ──outbox──▶ realtime broadcast (UI) + pgmq (AI, notificat
 ## 5. RLS standard (applies to every table, no exceptions)
 
 ```sql
--- helper (private schema, security definer, stable): entity ids the caller may read
-create function private.user_entities() returns uuid[] ...;
--- helper: permission check, cached per statement
-create function private.can(p_entity uuid, p_perm text) returns boolean ...;
+-- helper (private schema, security definer, stable): entity ids where the caller
+-- holds a given permission. Takes no row column, so wrapped in (select …) it is
+-- evaluated ONCE per statement (initPlan), not once per row.
+create function private.entities_with(p_perm text) returns uuid[] ...;
 
 create policy journals_read on pep.journal_entries
   for select to authenticated
-  using ( entity_id = any ( (select private.user_entities()) )
-          and (select private.can(entity_id, 'journals.read'))
+  using ( entity_id = any ( (select private.entities_with('journals.read')) )
           and (select auth.jwt() ->> 'aal') = 'aal2' );
 create index on pep.journal_entries (entity_id);   -- every policy column indexed
 ```
@@ -109,6 +108,8 @@ create index on pep.journal_entries (entity_id);   -- every policy column indexe
 - pgTAP tests prove, for each role × table: what may be read, that nothing may be written, and cross-entity isolation. These extend the existing `tests/security` suite.
 
 ## 6. Realtime and jobs
+
+**All channels are private** (`config: { private: true }`). RLS policies on `realtime.messages` allow a subscription only when the topic's entity id is in `private.entities_with('<perm>.read')` for the caller. Broadcast payloads carry ids and status only, never amounts or PII; the client refetches the details through RLS.
 
 | Channel / queue | Producer | Consumer |
 |---|---|---|

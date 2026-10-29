@@ -1,6 +1,6 @@
 # 05 — Module catalogue
 
-Each module card follows the same structure: purpose, features, screens, events it emits, controls, reference, phase, and **acceptance gate** (the test that must pass before the module is called done). Screen counts add up to the roughly 100-screen UI programme.
+Each module card follows the same structure: purpose, features, screens, events it emits, controls, reference, phase, and **acceptance gate** (the test that must pass before the module is called done). Screen counts total 128 (see the end of this file); the roughly 100-screen UI programme is the subset delivered by go-live.
 
 ---
 
@@ -43,7 +43,7 @@ Each module card follows the same structure: purpose, features, screens, events 
 - **Controls:**
   - Existing invariants.
   - Imports never auto-post; they create drafts.
-  - Year-end close only after all 12 periods are locked.
+  - The closing journal posts to a dedicated period-13 adjustment period (`period_no` allows up to 16); the financial year is locked after the close.
 - **Reference:** ERPNext Period Closing Voucher; Odoo `account.move`.
 - **Gate:**
   - Closing journal zeroes P&L into retained earnings, and the TB still balances.
@@ -68,7 +68,7 @@ Each module card follows the same structure: purpose, features, screens, events 
   - Unified party master with roles.
   - KYC: Ghana Card and TIN, encrypted and masked.
   - Contacts.
-  - Bank and MoMo payout details: changes require maker-checker plus re-verification, and are flagged by the anomaly engine.
+  - Bank and MoMo payout details: changes require maker-checker plus re-verification (and are flagged by the anomaly engine from Phase 6).
   - Agent licence number and expiry (Act 1047 s.48(1)(d)).
   - Statements of account.
 - **Screens (6):** party list, party 360 (balances, contracts, documents, timeline), new/edit party, KYC review queue, payout-details change approvals, agent licence register.
@@ -128,7 +128,7 @@ Each module card follows the same structure: purpose, features, screens, events 
   - `mandate.sale_settled`
 - **Controls:**
   - A parcel cannot be double-sold.
-  - Client money never touches revenue: escrow (1150) must equal the client-money liability (2300), checked nightly.
+  - Client money never touches revenue: the escrow account must equal the client-money liability account (M0 template 1150 / 2300, remapped to PEP codes), checked nightly.
   - Revenue is recognised only on the control event.
   - Refunds need approval.
 - **Reference:** our M0 posting engine and real-estate chart of accounts (branch); ERPNext Sales Invoice / Payment Schedule (study).
@@ -152,7 +152,7 @@ Each module card follows the same structure: purpose, features, screens, events 
   - Customer statements and a self-service statement link (signed, expiring URL).
 - **Screens (8):** invoices, invoice editor, credit notes, allocations, ageing, dunning runs, ECL matrix, customer statement.
 - **Phase:** 2–3.
-- **Gate:** the AR subledger equals the GL control accounts (1210/1215/1220) at every period end. This is the close-checklist auto-check.
+- **Gate:** the AR subledger equals the GL control accounts (M0 template 1210/1215/1220, remapped) at every period end. This is the close-checklist auto-check.
 
 ## M6 · Payables & payments
 - **Features:**
@@ -232,7 +232,7 @@ Each module card follows the same structure: purpose, features, screens, events 
   - Model, prompt version and inputs logged.
   - No PII sent to models beyond what the task needs.
   - Provider terms checked for no training on our data.
-- **Phase:** 6 (dashboards and alerts start in Phase 3).
+- **Phase:** 6. Collections and parcel-margin dashboards come in Phase 2; cash position and the first alerts in Phase 3.
 - **Gate:**
   - Measured extraction accuracy is at least 95% on fields from 200 real Ghanaian receipts and invoices.
   - "Ask the books" answers on a 50-question benchmark match SQL ground truth 100% or refuse.

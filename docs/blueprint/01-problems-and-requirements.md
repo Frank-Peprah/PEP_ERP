@@ -61,7 +61,7 @@ This section is the test for every later design decision: if a feature does not 
 
 | Area | Requirement |
 |---|---|
-| **Correctness** | Money held in NUMERIC and decimal.js only. Every invariant enforced in both the database and the service. Property-based tests on posting |
+| **Correctness** | Money is NUMERIC in the database, decimal.js in services, and integer minor units (BigInt) in the browser; never floats. Every invariant enforced in both the database and the service. Property-based tests on posting |
 | **Performance** | TB under 500 ms at 1M lines (cache only above that, and reconciled). Grid entry has no input lag (virtualised). P95 API under 300 ms in-region |
 | **Availability** | Production on Supabase Pro or above with daily backups and PITR. RPO 5 minutes (PITR) / RTO 4 hours. Restore test passed before go-live |
 | **Connectivity** | Field and receipt screens usable offline, queueing writes, with conflict-free sync for drafts. Posting always happens online (server-authoritative) |

@@ -23,9 +23,9 @@ The PEP ERP ledger core (R1–R2: workflow, SoD, gapless numbering, hash-chained
 | **Component system** | [shadcn/ui](https://ui.shadcn.com) (copy-in), Radix/Base UI, Sonner, cmdk, react-hook-form + zod, react-day-picker, lucide, Recharts | MIT / ISC | Components live in-repo (`packages/ui`) and are tuned to the Emil Kowalski rules (06) | 0 |
 | **Spreadsheet entry grid** | [Glide Data Grid](https://github.com/glideapps/glide-data-grid) 6.0.3 | MIT | Journal grid, bank-statement grid, import preview, budget grid. **Pinned, and vendored as a fork** because there has been no stable release since Feb 2024 | 0–1 |
 | **Report and list tables** | [TanStack Table](https://github.com/TanStack/table) **v9** + TanStack Virtual | MIT | Standardise on v9 now (v9.3.1, Oct 2026); port shadcn-admin's v8 data-table once in Phase 0 | 0 |
-| **Multi-tenancy, RLS and DB test harness** | [Basejump](https://github.com/usebasejump/basejump) migrations + `supabase_test_helpers` | MIT | Copy its membership/role and RLS patterns and its pgTAP helpers. Remodel as **group → entity → user role**, mapped onto our existing `user_entity_roles` and `role_permissions`. Unmaintained upstream, so we own the copy | 0 |
+| **Multi-tenancy, RLS and DB test harness** | [Basejump](https://github.com/usebasejump/basejump) migrations + `supabase_test_helpers` | MIT | Copy its membership/role and RLS patterns and its pgTAP helpers. Remodel as **group → entity → user role**, mapped onto our existing `user_entity_roles` and `role_permissions`, as a Phase 0 migration in `supabase/migrations`. Unmaintained upstream, so we own the copy | 0 |
 | **Ledger balance cache pattern** | [pgledger](https://github.com/pgr0ss/pgledger) | MIT | Borrow its versioned account-balance design for a **rebuildable, reconciled** period-balance cache (ADR-003 trigger: above 1M lines). Not authoritative | 1 / 6 |
-| **Real-estate posting engine** | Our own M0 build (branch `m0-realestate-posting-engine`) | Ours | Port event → effective-dated posting rules, parcels, parties and the real-estate chart of accounts into `database/migrations/005+` on the PEP schema | 2 |
+| **Real-estate posting engine** | Our own M0 build (branch `m0-realestate-posting-engine`) | Ours | Port event → effective-dated posting rules, parcels, parties and the real-estate chart of accounts into new migrations in `supabase/migrations`, **remapping M0 account codes to the PEP chart** (they clash: M0 2110 is trade payables, PEP 2110 is customer deposits; PEP 2300 is agent commissions payable) | 2 |
 | **AI document extraction** | [vas3k/TaxHacker](https://github.com/vas3k/TaxHacker) | MIT | Port the extraction prompts, field schema and FX-at-transaction-date logic into a Supabase Edge Function worker. Replace Prisma with our DB layer. Add Ghana fields (TIN, E-VAT QR/signature, Ghana Card) | 6 |
 | **Offline capture and sync** | [PowerSync JS SDK](https://github.com/powersync-ja/powersync-js) | Apache-2.0 (service FSL-1.1-ALv2: OK for our own product, can't be resold as a sync service) | Receipt capture, drafts and field screens offline; posting stays server-side | 8 |
 | **Optional workpaper spreadsheet** | [Univer](https://github.com/dream-num/univer) core | Apache-2.0 | Only if users need formulas or workpapers. **Avoid the Pro features** (collaboration, import/export, print) | 8 (optional) |
@@ -72,7 +72,7 @@ apps/web/            ← forked from shadcn-admin @ <sha>; history squashed; UPS
 packages/ui/         ← shadcn components (copy-in), tuned to the Emil rules
 packages/grid/       ← vendored Glide Data Grid fork @ 6.0.3 + PEP patches
 packages/accounting-domain/   ← existing (ours)
-database/migrations/ ← existing 001–004 + new; Basejump patterns adapted as 005_tenancy_rls.sql
+supabase/migrations/ ← single history: existing 001–004 moved (with migration repair) + new timestamped migrations
 supabase/            ← Supabase CLI project (config.toml, functions/, tests/ pgTAP)
 ```
 

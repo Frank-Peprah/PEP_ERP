@@ -74,7 +74,7 @@ These are research findings. **Every rate must be re-verified by a Ghanaian tax 
 | SSNIT | 5.5% employee + 13% employer; Tier 1 13.5% (incl. 2.5% NHIS), Tier 2 5%; insurable earnings GHS 587.80–69,000 (2026) | Payroll module, Phase 7 |
 | Corporate tax | CIT 25%; Growth and Sustainability Levy 2.5% of PBT (2023–2028), not deductible; company land gains taxed at 25% | Tax provision schedule |
 | Stamp duty (conveyance) | 0.25% / 0.5% / 1% bands; leases 0.5% / 1% | Real-estate sale calculator |
-| Real Estate Agency Act 2020 (Act 1047) | s.45 no cash; s.46 client account; s.47 transaction certificate; s.48 no commingling and no commission sharing with unlicensed persons; s.49 quarterly reports; s.50 records 5+ years and auditor; s.52 annual report within 3 months | Hard controls in the real-estate module (05, M-RE) |
+| Real Estate Agency Act 2020 (Act 1047) | s.45 no cash; s.46 client account; s.47 transaction certificate; s.48 no commingling and no commission sharing with unlicensed persons; s.49 quarterly reports; s.50 records 5+ years and auditor; s.52 annual report within 3 months | Hard controls in the real-estate module (05, M4) |
 | Retention | Act 915: at least 6 years | Retention policy and archive, no hard deletes |
 | Reporting framework | Public interest entities: full IFRS; other SMEs: IFRS for SMEs (ICAG) | Template per entity (IFRS_GENERAL exists; IFRS_SMES to add) |
 

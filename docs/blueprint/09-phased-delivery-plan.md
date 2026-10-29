@@ -9,7 +9,7 @@
 | **Plan** (days 1–2) | Confirm scope against this blueprint; resolve the decisions listed for the phase; write ADRs; write the phase test plan (golden datasets, scenarios) | `docs/phases/P<n>-plan.md`, ADRs |
 | **Build** (days 3–8) | Migrations → domain rules → command services → `api` views + RLS → UI screens → docs. Small PRs to `main` behind feature flags | PRs with green CI |
 | **Test** (days 8–9) | Full automated suite (10), phase gate tests, Playwright journeys, security scans, CEO review session (2–3 h, fixed day) | Gate report `docs/phases/P<n>-gate.md` |
-| **Deploy** (day 10) | Tag `v0.<n>.0` → migrations to staging → functions → web → smoke tests → release notes. Production deploys start at Phase 4 | Release notes, deploy log |
+| **Deploy** (day 10) | Tag `v0.<n+3>.0` (Phase 0 → v0.3.0) → migrations to staging → functions → web → smoke tests → release notes. Production deploys start at Phase 4 | Release notes, deploy log |
 
 **Go-live target:** opening TB at 31 Dec 2026, live posting from 1 Jan 2027. **Production switch-on Fri 19 Feb 2027**, with January closed in parallel.
 
@@ -27,6 +27,7 @@
 2. Supabase CLI project.
    - `supabase/config.toml`; migrations moved under the CLI convention, keeping the existing `database/migrate.ts` for local Postgres tests.
    - Move `btree_gist` out of `public` (advisor warning).
+   - `supabase migration repair` on staging, plus a filename map in `database/migrate.ts`, so moved migrations are not re-run.
 3. **Identity.**
    - Supabase Auth with MFA enrolment and challenge.
    - `users.auth_user_id` link.
@@ -35,8 +36,9 @@
    - Staging access code retired once real auth is live.
 4. **DB role and RLS.**
    - `pep_app` role; Edge Functions connect as `pep_app`.
-   - `private.user_entities()` and `private.can()`.
-   - Read policies on all 15 tables.
+   - `private.entities_with(perm)` helper (returns entity ids; evaluated once per statement).
+   - Read policies on the 14 data tables. `app_config` gets no policies, and its secrets move to Vault.
+   - **Move all tables from `public` to the unexposed `pep` schema** (`ALTER TABLE … SET SCHEMA`; `pep_app` search_path updated), so PostgREST only sees `api` views.
    - `api` schema views.
    - Basejump pgTAP helpers.
 5. Split `pep-api` into the module functions `ledger` and `statements`, sharing packages.
@@ -48,19 +50,20 @@
    - `deploy-prod.yml`: on tag plus manual approval; inactive until Phase 4.
 8. Security headers, CSP and rate limiting.
 9. Sentry and the health page.
-10. ADR-005 to ADR-011.
+10. Groups, user invitations and `approval_policies` (thresholds by document type), used from Phase 2.
+11. ADR-005 to ADR-011.
 
 **Gate:**
 - All existing tests pass unchanged.
 - New tests for MFA, AAL1 denial, PostgREST isolation, `pep_app` privilege limits and licence policy all pass.
 - The journal workflow passes end to end in Playwright on staging with real auth.
 
-**Decisions needed by Mon 2 Nov:** D1 Supabase Pro, D2 repo visibility, D3 production web host (12).
+**Decisions needed:** D1 Supabase Pro, D2 repo visibility and D17 finance lead by Mon 2 Nov; D3 production web host by Fri 6 Nov (12).
 
 ## Phase 1 — Ledger completion (R1b) · Mon 16 Nov → Fri 27 Nov 2026
 
 **Build:**
-- Dimensions (cost centre, project, parcel).
+- Dimensions (cost centre, project; the parcel dimension is added in Phase 2 with parcels).
 - Attachments (Storage + drill-down).
 - CSV/XLSX import wizard with preview grid (opening balances, journals, COA).
 - Adjusted TB.
@@ -84,10 +87,10 @@
 
 **Parallel workstream (finance lead):** the opening-balance cleanup templates (`OPENING_BALANCES` plan) start now.
 
-## Phase 2 — Real estate operations & receivables · Mon 30 Nov 2026 → Fri 8 Jan 2027 (5 weeks, including the holiday slowdown)
+## Phase 2 — Real estate operations & receivables · Mon 30 Nov 2026 → Fri 8 Jan 2027 (6 weeks, including the holiday slowdown)
 
 **Build:**
-- Port the M0 posting engine (`business_events`, `posting_rules`, outbox) to migrations 005+.
+- Port the M0 posting engine (`business_events`, `posting_rules`, outbox) as new migrations, with an account-code remap table from the M0 template to the PEP chart.
 - Parties with encrypted KYC.
 - Estates and parcels with the status machine and cost components.
 - Sale contracts.
@@ -104,6 +107,7 @@
 - REAC quarterly report.
 - Stamp duty and CGT calculators.
 - Collections and parcel-margin dashboards.
+- Dunning runs (reminders before and after due date).
 
 **Gate:**
 - Trulander scenario book (40 cases) posts and ties out.
@@ -129,6 +133,7 @@
 - Reconciliation report with sign-off.
 - Live cash position.
 - Petty cash.
+- ECL provision matrix (IFRS 9 simplified).
 
 **Gate:**
 - 3 months of real-format statements reconcile to zero difference.
@@ -147,7 +152,8 @@
 - **External pen test** and fixes.
 - Restore drill: RPO/RTO measured.
 - Access review.
-- DPC registration filed.
+- DPC registration certificate in hand (application started in Phase 0).
+- Management reports (P&L by dimension) and the auditor export pack.
 - User guides and in-app help.
 - Training: 2 sessions per role.
 - **Dress rehearsal:** load Oct–Dec 2026 real data into a *separate rehearsal copy*, close those months, and compare against the current books.
@@ -166,7 +172,7 @@
 - Close January.
 - **Go-live Fri 19 Feb 2027.**
 - Hypercare for 4 weeks with a daily check-in.
-- Suspense account (2990) must be at zero by Mon 8 Mar 2027.
+- Suspense account (2990) must be at zero within 60 days of the opening-TB load: by Fri 9 Apr 2027.
 
 ## Phase 5 — Ghana tax engine · Mon 1 Mar → Fri 9 Apr 2027
 
@@ -190,6 +196,7 @@
 - Anomaly centre.
 - "Ask the books" on the read-only reporting schema.
 - Close analytics.
+- Report builder and scheduled report emails.
 - CEO dashboard v2.
 - AI activity log.
 
@@ -209,7 +216,7 @@
 
 | Window | Scope |
 |---|---|
-| Jul–Aug 2027 | Onboard **Pep Landbank** (second entity on live data); intercompany; consolidation; budgets and forecasts; group dashboard |
+| Jul–Aug 2027 | Onboard **Pep Landbank** (second entity on live data); intercompany; consolidation; budgets and forecasts, with budget-vs-actual reports; group dashboard |
 | Sep–Oct 2027 | **Manufacturing pack** (Brandini): items, BOM, WIP, standard cost |
 | Nov–Dec 2027 | **Construction pack** (IFRS 15 over time) and **wholesale/FMCG pack**. PWA offline (PowerSync). Customer self-service portal |
 | 2028 | Travel pack. SaaS readiness: tenant onboarding, billing, SOC 2 Type I if selling externally |

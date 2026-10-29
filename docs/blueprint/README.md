@@ -34,7 +34,7 @@
 
 | # | Section |
 |---|---|
-| 01 | [Problems & requirements](01-problems-and-requirements.md): personas, 25 problems, non-functional thresholds |
+| 01 | [Problems & requirements](01-problems-and-requirements.md): personas, 27 problems, non-functional thresholds |
 | 02 | [Benchmark research](02-benchmark-research.md): Xero, QuickBooks, Intacct, NetSuite, Banana, Midday, Digits; Supabase limits; Ghana compliance facts, with sources |
 | 03 | [Clone strategy](03-clone-strategy.md): what we fork, port, study and exclude; licence policy |
 | 04 | [Target architecture](04-target-architecture.md): Supabase design, module boundaries, data model roadmap, RLS standard, jobs, ADRs |
@@ -43,7 +43,7 @@
 | 07 | [Security & compliance](07-security-compliance.md): 17 controls; Acts 1047, 1151, 1178, 915, 992 and 843 |
 | 08 | [Intelligence, real-time & integrations](08-intelligence-realtime-integrations.md): AI guardrails; banks, MoMo, gateways, E-VAT; offline |
 | 09 | [Phased delivery plan](09-phased-delivery-plan.md): dated phases, gates and decisions |
-| 10 | [Testing strategy](10-testing-strategy.md): 14 test layers, scenario books, Definition of Done |
+| 10 | [Testing strategy](10-testing-strategy.md): 15 test layers, scenario books, Definition of Done |
 | 11 | [Deployment & DevOps](11-deployment-devops.md): environments, repo layout, pipelines, migration rules |
 | 12 | [Decisions, risks, RACI, costs](12-risks-decisions-raci.md) |
 
@@ -53,4 +53,4 @@ The blueprint is versioned with the code. Any change to scope, dates or architec
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0 | 29 Oct 2026 | First issue |
+| 1.0 | 29 Oct 2026 | First issue, with 22 fixes from an independent consistency review applied |

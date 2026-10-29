@@ -28,7 +28,7 @@ Each decision has a default. If the default is used, the decision can be revisit
 
 | # | Risk | L | I | Mitigation | Owner |
 |---|---|---|---|---|---|
-| R1 | Opening balances aren't clean by cutover | H | H | The cleanup runs from Nov in parallel. Suspense (2990) is time-boxed to 60 days. Rehearsal on Oct–Dec data | Finance lead |
+| R1 | Opening balances aren't clean by cutover | H | H | The cleanup runs from Nov in parallel. Suspense (2990) is time-boxed to 60 days from the opening-TB load (zero by Fri 9 Apr 2027). Rehearsal on Oct–Dec data | Finance lead |
 | R2 | Accounting decisions arrive late and force rework | M | H | Defaults in place (D-register). Decisions due before the phase that needs them | CEO |
 | R3 | Review time is the bottleneck | H | M | Fixed 2–3 h CEO review slot per sprint (proposed: Fridays 14:00) | CEO |
 | R4 | Glide Data Grid unmaintained (no stable release since Feb 2024) | M | M | Vendored fork. Grid isolated behind `packages/grid`. RevoGrid (MIT) as the fallback | Claude |

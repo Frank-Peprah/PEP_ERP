@@ -4,7 +4,7 @@
 
 | Env | Supabase | Web | Data | Who deploys | Trigger |
 |---|---|---|---|---|---|
-| **Local** | `supabase start` (Docker) or plain Postgres 16 (existing tests) | Vite dev server | Seed A / B | Developer | — |
+| **Local** | `supabase start` (Docker) or plain Postgres 17 (existing tests; matches production) | Vite dev server | Seed A / B | Developer | — |
 | **Preview** | Supabase branch per PR (needs a paid plan) | Netlify / Cloudflare preview URL | Seed B | CI | PR opened or updated |
 | **Staging** | `pep-erp-staging` (exists, eu-west-2) | GitHub Pages today → staging host | Seed A (demo only) | CI | Merge to `main` |
 | **Rehearsal** | `pep-erp-rehearsal` (temporary, Phase 4) | Staging host, separate config | Real Oct–Dec 2026 copy | CI + manual | Manual |
@@ -42,7 +42,7 @@ PEP_ERP/
 
 | Workflow | Trigger | Steps |
 |---|---|---|
-| `ci.yml` | Every PR and push | Install → typecheck → lint → unit → spin up Postgres 16 → migrations from zero → integration + tamper + scenarios → pgTAP → build web → Playwright smoke + axe → licence check, gitleaks, npm audit → upload reports |
+| `ci.yml` | Every PR and push | Install → typecheck → lint → unit → spin up Postgres 17 → migrations from zero → integration + tamper + scenarios → pgTAP → build web → Playwright smoke + axe → licence check, gitleaks, npm audit → upload reports |
 | `preview.yml` | PR (once on a paid plan) | Create Supabase branch → migrate + Seed B → deploy functions to branch → web preview → comment URLs on the PR |
 | `deploy-staging.yml` | Merge to `main` | `supabase db push` (staging) → deploy functions → build and deploy web → smoke tests on staging → post a summary |
 | `deploy-prod.yml` | Tag `v*.*.*` | **Manual approval (CEO)** → pre-deploy backup marker → `supabase db push` (prod) → deploy functions → deploy web → smoke tests → automatic rollback of web/functions on failure (DB migrations are forward-only; a fix-forward migration is prepared in advance for risky changes) |
@@ -54,7 +54,7 @@ PEP_ERP/
 
 - **Trunk-based.** Short-lived branches `feat/<module>-<topic>`; squash-merge to `main`; feature flags (`app_config` + per-entity flags) for incomplete modules.
 - Protected `main`: PR required, CI green, linear history.
-- **Versions:** `v0.<phase>.<patch>` until go-live, then `v1.0.0` on Fri 19 Feb 2027 and semantic versioning after.
+- **Versions:** `v0.<phase+3>.<patch>` until go-live (continuing from the current v0.2.0, so Phase 0 is v0.3.0 and Phase 4 is v0.7.0), then `v1.0.0` on Fri 19 Feb 2027 and semantic versioning after.
 - Every release has CHANGELOG notes, a migration list and a rollback note.
 
 ## 5. Migration rules
