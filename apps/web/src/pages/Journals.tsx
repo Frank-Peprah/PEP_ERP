@@ -85,6 +85,7 @@ function JournalDrawer({ id, onClose, onEdit, onOpen }: { id: string; onClose: (
           </div>
           {j.status === 'rejected' && <div className="alert block"><Icon n="x" size={15} />Rejected: {j.rejection_reason}</div>}
           {j.reverses_journal_no && <div className="alert info"><Icon n="rev" size={15} />Reverses <a href="#" onClick={(e) => { e.preventDefault(); onOpen(j.reverses_journal_id); }}>{j.reverses_journal_no}</a></div>}
+          {j.auto_reverse_date && !j.reversed_by_journal_id && <div className="alert info"><Icon n="rev" size={15} />Reverses automatically on {j.auto_reverse_date} when posted</div>}
           {j.reversed_by_journal_id && <div className="alert warn"><Icon n="rev" size={15} />Reversed by <a href="#" onClick={(e) => { e.preventDefault(); onOpen(j.reversed_by_journal_id); }}>{j.reversed_by_journal_no ?? 'reversal journal'}</a></div>}
           <div className="kv">
             <div><label>Date</label><span className="mono">{j.journal_date}</span></div>
@@ -149,6 +150,9 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
   const [type, setType] = useState(initial.journal_type ?? 'manual');
   const ADJ = ['accrual', 'prepayment', 'correction'];
   const [adj, setAdj] = useState<boolean>(initial.is_adjustment ?? ADJ.includes(initial.journal_type ?? 'manual'));
+  // First day of the month after `d` — where a month-end accrual normally reverses.
+  const nextMonth = (d: string) => { const [y, m] = d.split('-').map(Number); return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`; };
+  const [rev, setRev] = useState<string>(initial.auto_reverse_date ?? '');
   const [rows, setRows] = useState<Row[]>(initial.lines?.map((l: any) => ({
     account: `${l.account_code} — ${l.account_name}`, description: l.description ?? '',
     debit: Number(l.txn_debit) ? l.txn_debit : '', credit: Number(l.txn_credit) ? l.txn_credit : '' })) ?? [blank(), blank(), blank()]);
@@ -167,7 +171,7 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
   const save = async (submit: boolean) => {
     setBusy(true);
     try {
-      const body = { journalDate: date, description: desc, reference: ref || null, journalType: type, isAdjustment: type === 'opening_balance' ? false : adj,
+      const body = { journalDate: date, description: desc, reference: ref || null, journalType: type, isAdjustment: type === 'opening_balance' ? false : adj, autoReverseDate: type === 'opening_balance' ? null : rev || null,
         lines: used.map((r) => ({ accountId: byLabel.get(r.account.trim())?.id, description: r.description || null, debit: r.debit || null, credit: r.credit || null })),
         ...(initial.id ? { expectedVersion: initial.version } : {}) };
       const j = initial.id ? await api(`${E(c)}/journals/${initial.id}`, { method: 'PUT', body }) : await api(`${E(c)}/journals`, { method: 'POST', body });
@@ -188,11 +192,13 @@ function JournalEditor({ initial, onClose, onSaved }: { initial: any; onClose: (
             <label className="field" style={{ width: 160 }}>Date<input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
             <label className="field" style={{ flex: 1, minWidth: 260 }}>Description<input className="input" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Plot sales — October" /></label>
             <label className="field" style={{ width: 160 }}>Reference<input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Invoice / deed no." /></label>
-            <label className="field" style={{ width: 170 }}>Type<select className="input" value={type} onChange={(e) => { setType(e.target.value); setAdj(ADJ.includes(e.target.value)); }}>
+            <label className="field" style={{ width: 170 }}>Type<select className="input" value={type} onChange={(e) => { const t = e.target.value; setType(t); setAdj(ADJ.includes(t)); if (t === 'accrual' && !rev && /^\d{4}-\d{2}-\d{2}$/.test(date)) setRev(nextMonth(date)); if (t === 'opening_balance') setRev(''); }}>
               {['manual', 'opening_balance', 'accrual', 'prepayment', 'correction'].map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}</select></label>
             <label className="field" style={{ width: 170, flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-end', minHeight: 40 }}
                    title="Adjusting entries (accruals, prepayments, depreciation, audit adjustments) are shown separately in the adjusted trial balance">
               <input type="checkbox" checked={type !== 'opening_balance' && adj} disabled={type === 'opening_balance'} onChange={(e) => setAdj(e.target.checked)} />Adjusting entry</label>
+            <label className="field" style={{ width: 190 }} title="When this journal is posted, its reversal is posted automatically on this date (for example, an accrual reversing on the 1st)">Reverse automatically on
+              <input className="input" type="date" value={rev} min={date} disabled={type === 'opening_balance'} onChange={(e) => setRev(e.target.value)} /></label>
           </div>
           <datalist id="acct-list">{postable.map((a) => <option key={a.id} value={`${a.code} — ${a.name}`} />)}</datalist>
           <table className="grid-ed">

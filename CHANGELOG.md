@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2-dev — 2026-10-29 — Blueprint Phase 1: recurring and auto-reversing journals
+- **Auto-reversing journals** (migration 011): set "Reverse automatically on" on any journal; posting it posts the
+  reversal on that date in the same transaction. Missing or locked reversal period blocks submission early.
+- **Recurring journals**: templates (monthly, quarterly, six-monthly, yearly; month-end option; first/last date);
+  "Create due drafts" generates every run due, catching up, idempotent per template and date; drafts are approved as
+  usual. Accrual templates reverse on the 1st of the next period. Pause, resume, end; never deleted. New screen
+  **Recurring Journals** (Accounting).
+- Tests: 13 invariant tests; recurring-template journey on desktop and phone with axe.
+
 ## 0.5.1-dev — 2026-10-29 — Blueprint Phase 1: adjusted trial balance
 - **Adjusting entries** (migration 010): journals carry an adjusting-entry flag (default by type; preparer can override);
   frozen once submitted (database trigger); a reversal inherits it.

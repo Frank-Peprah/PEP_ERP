@@ -12,13 +12,14 @@ import * as R from './services/reports.js';
 import * as FS from './services/statements.js';
 import * as U from './services/users.js';
 import * as YC from './services/close.js';
+import * as RJ from './services/recurring.js';
 import { API_VERSION, systemHealth } from './services/health.js';
 import { dashboard } from './services/dashboard.js';
 
 const STATUS: Record<string, number> = {
   AUTH_NOT_CONFIGURED: 503, UNAUTHENTICATED: 401, MFA_REQUIRED: 403, AUTH_PROVIDER_UNAVAILABLE: 502, INVITE_FAILED: 502,
   RATE_LIMITED: 429, USER_INACTIVE: 409, CLOSE_ALREADY_EXISTS: 409, CLOSE_PRECONDITIONS: 422, YEAR_NOT_CLOSABLE: 409, CLOSING_JOURNAL_DATE: 422, APPROVAL_POLICY_APPEND_ONLY: 409, ACCESS_CODE_REQUIRED: 401, FORBIDDEN: 403, SEGREGATION_OF_DUTIES: 403, NOT_FOUND: 404,
-  CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409,
+  CONFLICT: 409, OVERLAP: 409, STALE_VERSION: 409, IDEMPOTENCY_CONFLICT: 409, ALREADY_REVERSED: 409, NAME_TAKEN: 409, RECURRING_ENDED: 409,
   ACCOUNT_HAS_ACTIVITY: 409, REFERENCED: 409, POSTED_JOURNAL_IMMUTABLE: 409, JOURNAL_LINES_IMMUTABLE: 409,
   PERIOD_LOCKED: 423, PERIODS_NOT_LOCKED: 423, STATEMENT_STALE: 409, STATEMENT_HAS_BLOCKING_EXCEPTIONS: 422,
   STATEMENT_RUN_IMMUTABLE: 409, STATEMENT_CONTENT_IMMUTABLE: 409, STATEMENT_RUN_DELETE_FORBIDDEN: 409, NO_TEMPLATE: 422,
@@ -197,6 +198,16 @@ export function buildApp(db: Db, opts: { allowDevLogin?: boolean; logger?: boole
   });
   app.post(`${E}/financial-years/:id/close/finalise`, { preHandler: scoped }, async (req) =>
     YC.finaliseClose(db, req.scope!, req.actor!, (req.params as P).id));
+  // Recurring journals (Blueprint Phase 1)
+  app.get(`${E}/recurring-journals`, { preHandler: scoped }, async (req) => RJ.listRecurring(db, req.scope!));
+  app.post(`${E}/recurring-journals`, { preHandler: scoped }, async (req, reply) => {
+    reply.status(201);
+    return RJ.createRecurring(db, req.scope!, req.actor!, req.body as any);
+  });
+  app.post(`${E}/recurring-journals/:id/status`, { preHandler: scoped }, async (req) =>
+    RJ.setRecurringStatus(db, req.scope!, req.actor!, (req.params as P).id, (req.body as any)?.status));
+  app.post(`${E}/recurring-journals/generate`, { preHandler: scoped }, async (req) =>
+    RJ.generateDue(db, req.scope!, req.actor!, (req.body as any)?.asOf));
   app.get(`${E}/trial-balance`, { preHandler: scoped }, async (req) => {
     const q = req.query as any;
     return R.trialBalance(db, req.scope!, { periodId: q.periodId, basis: q.basis, includeZero: q.includeZero === 'true',
