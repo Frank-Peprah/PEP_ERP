@@ -6,7 +6,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${VITE_API_BASE:=https://ppyancjjjsaogyjpkxcr.supabase.co/functions/v1/pep-api}"
-export VITE_API_BASE VITE_BASE=./ VITE_ROUTER=hash   # Pages has no URL rewrites: #/entity/screen routes
+# Supabase Auth for staging (Blueprint Phase 0). The publishable key is public by design: it only
+# identifies the project; access is enforced by Auth, MFA, the API and row-level security.
+: "${VITE_SUPABASE_URL:=https://ppyancjjjsaogyjpkxcr.supabase.co}"
+: "${VITE_SUPABASE_PUBLISHABLE_KEY:=sb_publishable_dLCp_29fkq5hvKkR9-8BSw_YhWyQf1h}"
+export VITE_API_BASE VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_BASE=./ VITE_ROUTER=hash   # Pages has no URL rewrites: #/entity/screen routes
 
 npm run build:web
 rm -f apps/web/dist/.htaccess                          # Apache-only

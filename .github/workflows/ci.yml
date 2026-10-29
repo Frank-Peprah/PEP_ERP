@@ -1,0 +1,91 @@
+# Continuous integration (Blueprint 10 Testing strategy, 11 §3 Pipelines).
+# Runs on every push and pull request. A red build blocks merge to main.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pep
+          POSTGRES_PASSWORD: pep
+          POSTGRES_DB: pep_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pep" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://pep:pep@localhost:5432/pep_test
+      DATABASE_URL: postgres://pep:pep@localhost:5432/pep_dev
+      AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-1234
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Create dev database
+        run: PGPASSWORD=pep psql -h localhost -U pep -d pep_test -c "CREATE DATABASE pep_dev"
+      - name: Typecheck (API, domain, tests)
+        run: npm run typecheck
+      - name: Unit, integration, database-invariant and security tests (run as pep_app)
+        run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml
+      - name: Build web app (typecheck + Vite) and enforce bundle budgets
+        run: npm run build:web && ./scripts/check-budgets.sh apps/web/dist
+      - name: Browser journeys with accessibility checks (axe)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run db:seed
+          mkdir -p reports
+          (npx tsx apps/api/src/server.ts > reports/api.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf localhost:4000/api/health && break; sleep 1; done
+          E2E_BASE=http://localhost:4000 node tests/e2e/phase0.e2e.mjs
+        env:
+          PORT: '4000'
+          PEP_DB_ROLE: pep_app   # same least-privilege role as production
+      - name: Edge bundle builds
+        run: node scripts/build-edge.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: reports/
+          if-no-files-found: ignore
+
+  security:
+    name: Licences, secrets, vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Licence gate (no copyleft / source-available / unknown in production deps)
+        run: node scripts/check-licences.mjs
+      - name: Known vulnerabilities in production dependencies (fail on high+)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
