@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1-dev — 2026-10-29 — Blueprint Phase 1: adjusted trial balance
+- **Adjusting entries** (migration 010): journals carry an adjusting-entry flag (default by type; preparer can override);
+  frozen once submitted (database trigger); a reversal inherits it.
+- **Adjusted trial balance**: every row now has unadjusted, adjustments and adjusted columns; screen has a
+  Movement / Adjusted view toggle and CSV export of either view.
+- Accessibility: status badge text raised to WCAG AA contrast; trial balance table is keyboard-scrollable on phones.
+
 ## 0.5.0-dev — 2026-10-29 — Blueprint Phase 1 (started): year-end close
 Status: `docs/phases/P1-status.md`. Deployed to staging (pep-api v14, migrations 008–009).
 - **Year-end close** (decision D4, closing journal): system-computed closing journal to retained earnings dated year-end,

@@ -31,6 +31,7 @@ Owner: Group CFO. Changes require review and a new ADR where behaviour changes.
 - YTD basis: opening = position at FY start; period basis: opening = position at period start.
 - Income-statement accounts open at zero each FY. Prior-year results not yet closed appear as an explicit, system-computed retained-earnings line (`PRIOR_YEAR_NOT_CLOSED`).
 - Year-end trial balance has two stages: `post_close` (default; includes the closing journal, so income-statement accounts are zero) and `pre_close` (`?stage=pre_close`; excludes the closing journal, for reviewing the year's results).
+- Adjusted trial balance (`view=adjusted` on screen; fields `unadjusted`, `adjustments`, `closing` on every row): adjusted = unadjusted + adjusting entries dated in the reporting window. A journal is an adjusting entry when flagged at preparation (default for accrual, prepayment, FX revaluation, tax adjustment and correction types; never for opening balances or the closing journal). The flag is frozen once the journal leaves draft; a reversal carries the flag of the journal it reverses.
 - Exceptions: `TB_OUT_OF_BALANCE` (blocking), `RETAINED_EARNINGS_NOT_CONFIGURED` (blocking), `UNMAPPED_ACCOUNT`, `ABNORMAL_BALANCE`, `INACTIVE_WITH_BALANCE`.
 
 ## Year-end close (decision D4: closing journal)

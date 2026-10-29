@@ -7,7 +7,7 @@ import { DomainError } from '@pep/accounting-domain';
 import type { Db } from '../lib/db.js';
 import type { EntityScope } from '../lib/auth.js';
 
-export const API_VERSION = '0.5.0-dev';
+export const API_VERSION = '0.5.1-dev';
 
 type Check = { key: string; label: string; ok: boolean; detail: string };
 
